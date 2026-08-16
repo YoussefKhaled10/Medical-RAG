@@ -1,0 +1,14 @@
+sqlalchemy
+psycopg2-binary
+pgvector
+alembic
+python-dotenv
+asyncpg
+numpy
+pydantic-settings
+fastapi
+uvicorn[standard]
+cohere
+unstructured[pdf]
+langchain-text-splitters
+python-multipart
