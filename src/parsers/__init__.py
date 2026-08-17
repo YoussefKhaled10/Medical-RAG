@@ -1,10 +1,5 @@
 from .PDFParserInterface import PDFParserInterface
+from .PyMuPDFParser import PyMuPDFParser
 from .SectionBuilder import SectionBuilder
-from .UnstructuredPDFParser import UnstructuredPDFParser
 
-
-__all__ = [
-    "PDFParserInterface",
-    "UnstructuredPDFParser",
-    "SectionBuilder",
-]
+__all__ = ["PDFParserInterface", "PyMuPDFParser", "SectionBuilder"]

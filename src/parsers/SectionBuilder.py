@@ -4,90 +4,112 @@ from src.schemas.ingestion import DocumentSection, ParsedElement
 
 
 class SectionBuilder:
-    """Group consecutive parsed elements under meaningful section titles."""
+    """Build conservative, hierarchical sections from parsed PDF elements."""
 
-    def __init__(
-        self,
-        default_section_title: str = "Introduction",
-        detect_title_patterns: bool = True,
-    ) -> None:
-        normalized_title = default_section_title.strip()
-        if not normalized_title:
-            raise ValueError("default_section_title must not be empty")
+    SUBSECTION_NAMES = {
+        "quality statement",
+        "rationale",
+        "quality measures",
+        "process",
+        "structure",
+        "outcome",
+        "source guidance",
+        "definitions of terms used in this quality statement",
+        "equality and diversity considerations",
+    }
 
-        self._default_section_title = normalized_title
-        self._detect_title_patterns = detect_title_patterns
+    def __init__(self, default_section_title: str = "Document information") -> None:
+        self._default_section_title = default_section_title
 
     @staticmethod
-    def _looks_like_title(element: ParsedElement) -> bool:
-        if element.is_title:
-            return True
+    def _normalize_title(text: str) -> str:
+        value = " ".join(text.split()).strip()
+        value = re.sub(r"\s*\.{4,}\s*\d+\s*$", "", value)
+        return value[:500].strip()
 
-        text = element.text.strip()
-        if not text or len(text) > 500 or "\n" in text:
+    @staticmethod
+    def _is_real_title(element: ParsedElement) -> bool:
+        if not element.is_title:
             return False
+        text = " ".join(element.text.split()).strip()
+        if not text or len(text) > 180:
+            return False
+        if text.endswith(('.', ',', ';', ':')):
+            return False
+        if text[0].islower():
+            return False
+        if re.fullmatch(r"(?:\d+|\d+\s+weeks?|[a-z]+\))", text, re.I):
+            return False
+        if len(text.split()) > 20:
+            return False
+        return True
 
-        words = text.split()
-        numbered_title = bool(
-            re.match(
-                r"^(?:\d+(?:\.\d+)*|[A-Z]|[IVXLC]+)[.)]?\s+\S+",
-                text,
-            )
-        )
-        known_heading = bool(
-            re.match(
-                r"^(?:contents|quality statement|rationale|quality measures|"
-                r"source guidance|definitions? of terms|equality and diversity|"
-                r"recommendations?|introduction|overview|references?)\b",
-                text,
-                flags=re.IGNORECASE,
-            )
-        )
-        uppercase_title = text.isupper() and 1 <= len(words) <= 15
-
-        return numbered_title or known_heading or uppercase_title
+    @staticmethod
+    def _is_parent_title(title: str) -> bool:
+        return bool(re.match(r"^Quality statement\s+\d+:", title, flags=re.I))
 
     def build(
         self,
         document_name: str,
         elements: list[ParsedElement],
     ) -> list[DocumentSection]:
-        normalized_document_name = document_name.strip()
-        if not normalized_document_name:
+        if not document_name.strip():
             raise ValueError("document_name must not be empty")
         if not elements:
             return []
 
-        ordered_elements = sorted(elements, key=lambda item: item.element_index)
         sections: list[DocumentSection] = []
         current_title = self._default_section_title
+        parent_title: str | None = None
         current_elements: list[ParsedElement] = []
+        in_contents = False
 
-        def save_current_section() -> None:
-            if not current_elements:
-                return
-
-            sections.append(
-                DocumentSection(
-                    document_name=normalized_document_name,
+        def save() -> None:
+            if current_elements:
+                sections.append(DocumentSection(
+                    document_name=document_name.strip(),
                     section_title=current_title,
                     elements=list(current_elements),
-                )
-            )
+                ))
 
-        for element in ordered_elements:
-            is_title = element.is_title or (
-                self._detect_title_patterns
-                and self._looks_like_title(element)
-            )
-
-            if is_title:
-                save_current_section()
-                current_title = element.text[:500]
-                current_elements = []
+        for element in sorted(elements, key=lambda item: item.element_index):
+            if not self._is_real_title(element):
+                current_elements.append(element)
                 continue
 
-            current_elements.append(element)
+            title = self._normalize_title(element.text)
+            lower_title = title.lower()
 
-        save_current_section()
+            # Keep the complete table of contents under one section.
+            if lower_title == "contents":
+                save()
+                current_elements = []
+                current_title = "Contents"
+                parent_title = None
+                in_contents = True
+                continue
+
+            if in_contents:
+                if lower_title == "quality statements" or element.page_number >= 4:
+                    save()
+                    current_elements = []
+                    in_contents = False
+                else:
+                    current_elements.append(element.model_copy(update={"is_title": False}))
+                    continue
+
+            save()
+            current_elements = []
+
+            if self._is_parent_title(title):
+                parent_title = title
+                current_title = title
+            elif lower_title in self.SUBSECTION_NAMES and parent_title:
+                current_title = f"{parent_title} | {title}"
+            else:
+                if lower_title in {"update information", "about this quality standard", "diversity, equality and language", "endorsing organisation", "supporting organisations"}:
+                    parent_title = None
+                current_title = title
+
+        save()
         return sections

@@ -6,15 +6,13 @@ from .VectorDBEnums import (
     PgVectorTableSchemeEnums,
     VectorDBEnums,
 )
-
 from .VectorDBFactory import VectorDBFactory
-
-from .providers import (
-    PGVector_Provider,
+from .VectorDBInterface import (
     VectorDBInterface,
     VectorDocument,
     VectorSearchResult,
 )
+from .providers.PGVector_Provider import PGVector_Provider
 
 
 __all__ = [

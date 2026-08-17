@@ -8,7 +8,7 @@ numpy
 pydantic-settings
 fastapi
 uvicorn[standard]
-cohere
-unstructured[pdf]
-langchain-text-splitters
 python-multipart
+cohere
+PyMuPDF
+langchain-text-splitters
