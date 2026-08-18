@@ -12,3 +12,7 @@ python-multipart
 cohere
 PyMuPDF
 langchain-text-splitters
+google-genai
+groq
+streamlit
+httpx

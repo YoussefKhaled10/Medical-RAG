@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     COHERE_EMBEDDING_BATCH_SIZE : int
     COHERE_TRUNCATE : str
     EMBEDDING_MODEL_SIZE : int = 384
+    COHERE_RERANK_MODEL : str = "rerank-v3.5"
+    
+    GENERATION_PROVIDER: str = "gemini"
+    GEMINI_API_KEY: str = ""
+    GROQ_API_KEY : str = ""
+    GROQ_GENERATION_MODEL : str = "openai/gpt-oss-120b"
+    GEMINI_GENERATION_MODEL: str = "gemini-2.5-flash"
+    MANUS_API_KEY: str = ""
+    MANUS_AGENT_PROFILE: str = "manus-1.6"
+    RAG_MAX_CONTEXT_CHARACTERS: int = 24000
+    
+    RAG_RELEVANCE_THRESHOLD : float = 0.320982
+    RAG_MIN_RELEVANT_CHUNKS : int = 1
+    
+    KEYWORD_TRANSLATION_PROVIDER : str = "groq"
+    KEYWORD_TRANSLATION_MODEL : str = "openai/gpt-oss-120b"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

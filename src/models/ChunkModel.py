@@ -2,10 +2,10 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.db_schemes.medical_rag import Chunk
+from src.models.db_schemes.medical_rag import Asset, Chunk
 from src.schemas.ingestion import SemanticChunk
 
 
@@ -25,32 +25,28 @@ class ChunkModel:
     ) -> list[Chunk]:
         if asset_id <= 0:
             raise ValueError("asset_id must be greater than zero")
-
-        records: list[Chunk] = []
-        for chunk_index, semantic_chunk in enumerate(chunks, start=1):
-            record = Chunk(
+        records = [
+            Chunk(
                 asset_id=asset_id,
-                chunk_id=semantic_chunk.chunk_id,
-                document_name=semantic_chunk.document_name,
-                section_title=semantic_chunk.section_title,
-                page_number=semantic_chunk.page_number,
-                page_end=semantic_chunk.page_number,
-                text=semantic_chunk.text,
-                chunk_index=chunk_index,
-                token_count=cls.estimate_token_count(semantic_chunk.text),
+                chunk_id=chunk.chunk_id,
+                document_name=chunk.document_name,
+                section_title=chunk.section_title,
+                page_number=chunk.page_number,
+                page_end=chunk.page_number,
+                text=chunk.text,
+                chunk_index=index,
+                token_count=cls.estimate_token_count(chunk.text),
                 chunk_metadata=dict(metadata or {}),
             )
-            records.append(record)
-
+            for index, chunk in enumerate(chunks, start=1)
+        ]
         session.add_all(records)
-
         if commit:
             await session.commit()
             for record in records:
                 await session.refresh(record)
         else:
             await session.flush()
-
         return records
 
     @classmethod
@@ -63,22 +59,14 @@ class ChunkModel:
         commit: bool = True,
     ) -> list[Chunk]:
         try:
-            await session.execute(
-                delete(Chunk).where(Chunk.asset_id == asset_id)
-            )
+            await session.execute(delete(Chunk).where(Chunk.asset_id == asset_id))
             records = await cls.bulk_create(
-                session=session,
-                asset_id=asset_id,
-                chunks=chunks,
-                metadata=metadata,
-                commit=False,
+                session, asset_id, chunks, metadata, commit=False
             )
-
             if commit:
                 await session.commit()
                 for record in records:
                     await session.refresh(record)
-
             return records
         except Exception:
             await session.rollback()
@@ -111,10 +99,7 @@ class ChunkModel:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def count_by_asset(
-        session: AsyncSession,
-        asset_id: int,
-    ) -> int:
+    async def count_by_asset(session: AsyncSession, asset_id: int) -> int:
         result = await session.execute(
             select(func.count(Chunk.id)).where(Chunk.asset_id == asset_id)
         )
@@ -132,3 +117,56 @@ class ChunkModel:
         if commit:
             await session.commit()
         return int(result.rowcount or 0)
+
+    @staticmethod
+    async def keyword_search(
+        session: AsyncSession,
+        query: str,
+        limit: int = 20,
+        project_id: int | None = None,
+        asset_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """PostgreSQL full-text search over section titles and chunk text."""
+        normalized_query = query.strip()
+        if not normalized_query:
+            return []
+
+        searchable_text = func.concat_ws(
+            " ",
+            func.coalesce(Chunk.section_title, ""),
+            func.coalesce(Chunk.text, ""),
+        )
+        document_vector = func.to_tsvector("english", searchable_text)
+        query_vector = func.websearch_to_tsquery("english", normalized_query)
+        keyword_score = func.ts_rank_cd(
+            document_vector,
+            query_vector,
+            32,
+        ).label("keyword_score")
+
+        statement = (
+            select(
+                Chunk.asset_id,
+                Asset.project_id,
+                Chunk.chunk_id,
+                Chunk.document_name,
+                Chunk.section_title,
+                Chunk.page_number,
+                Chunk.text,
+                keyword_score,
+            )
+            .join(Asset, Asset.id == Chunk.asset_id)
+            .where(document_vector.op("@@")(query_vector))
+        )
+        if project_id is not None:
+            statement = statement.where(Asset.project_id == project_id)
+        if asset_id is not None:
+            statement = statement.where(Chunk.asset_id == asset_id)
+
+        statement = statement.order_by(
+            keyword_score.desc(),
+            Chunk.id.asc(),
+        ).limit(max(1, min(limit, 100)))
+
+        result = await session.execute(statement)
+        return [dict(row._mapping) for row in result.all()]

@@ -4,7 +4,14 @@ from fastapi import FastAPI
 
 from src.helpers.config import settings
 from src.models import close_database
-from src.routes import base_router, ingestion_router
+from src.routes import (
+    base_router,
+    export_router,
+    hybrid_retrieval_router,
+    ingestion_router,
+    rag_router,
+    retrieval_pipeline_router,
+)
 
 
 @asynccontextmanager
@@ -21,3 +28,7 @@ app = FastAPI(
 
 app.include_router(base_router)
 app.include_router(ingestion_router)
+app.include_router(export_router)
+app.include_router(hybrid_retrieval_router)
+app.include_router(retrieval_pipeline_router)
+app.include_router(rag_router)

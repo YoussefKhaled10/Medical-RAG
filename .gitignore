@@ -3,6 +3,18 @@
 venv/
 env/
 med_rag/
+New folder (2)
+New folder (3)
+New folder
+
+
+demo_cases.json
+rag_adversarial_cases.json
+rag_adversarial_results.json
+
+test_rag_adversarial.py
+test_rag_prompt_security.py
+test_rag_relevance_gate.py
 
 # Python cache
 __pycache__/
