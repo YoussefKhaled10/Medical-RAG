@@ -19,7 +19,7 @@ class RAGRequest(BaseModel):
     project_id: int | None = Field(default=None, gt=0)
     asset_id: int | None = Field(default=None, gt=0)
     retrieval_limit: int = Field(default=5, ge=1, le=10)
-    generation_provider: Literal["gemini", "groq", "manus", "glm"] | None = None
+    generation_provider: Literal["gemini", "groq", "manus"] | None = None
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_output_tokens: int = Field(default=1200, ge=64, le=8192)
 
@@ -55,22 +55,6 @@ class RAGRelevance(BaseModel):
     threshold: float
     qualified_chunk_count: int
     minimum_qualified_chunks: int
-
-
-class RAGEvidenceStrength(BaseModel):
-    level: Literal["insufficient", "moderate", "strong"]
-    top_score: float | None
-    relevance_threshold: float
-    strong_threshold: float
-    language_policy: str
-    answer_allowed: bool
-    rationale: str
-
-
-class RAGRefusalGuidance(BaseModel):
-    category: str
-    requires_professional: bool
-    urgent: bool
 
 
 class RAGRefusal(BaseModel):
@@ -159,9 +143,7 @@ class RAGResponse(BaseModel):
     refused: bool
     safety_flagged: bool
     refusal: RAGRefusal | None
-    refusal_guidance: RAGRefusalGuidance | None = None
     relevance: RAGRelevance
-    evidence_strength: RAGEvidenceStrength
     provider: str | None
     model: str | None
     request_id: str | None
@@ -238,15 +220,7 @@ async def ask_rag(
             if output["refusal"] is not None
             else None
         ),
-        refusal_guidance=(
-            RAGRefusalGuidance(**output["refusal_guidance"])
-            if output.get("refusal_guidance")
-            else None
-        ),
         relevance=RAGRelevance(**output["relevance"]),
-        evidence_strength=RAGEvidenceStrength(
-            **output["evidence_strength"]
-        ),
         provider=output["provider"],
         model=output["model"],
         request_id=output["request_id"],

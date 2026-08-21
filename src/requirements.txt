@@ -16,3 +16,4 @@ google-genai
 groq
 streamlit
 httpx
+openai

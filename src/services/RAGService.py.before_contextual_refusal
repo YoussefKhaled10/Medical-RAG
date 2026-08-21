@@ -15,7 +15,6 @@ from src.services.EvidenceStrengthClassifier import EvidenceStrengthClassifier
 from src.services.PostGenerationSafetyGate import PostGenerationSafetyGate
 from src.services.RAGPromptBuilder import RAGPromptBuilder
 from src.services.RelevanceGate import RelevanceGate
-from src.services.RefusalPolicy import RefusalPolicy
 from src.services.RetrievalPipelineService import RetrievalPipelineService
 from src.stores.llm.GenerationInterface import GenerationInterface
 
@@ -137,23 +136,13 @@ class RAGService:
             )
         )
         if not relevance["passed"]:
-            pre_generation_refusal = RefusalPolicy.decision(
-                normalized_question
-            )
             total_finished = perf_counter()
             return self._refusal_output(
                 question=normalized_question,
-                answer=pre_generation_refusal.message,
+                answer=insufficient_answer,
                 language=response_language,
                 retrieval=retrieval,
                 relevance=relevance,
-                refusal_guidance={
-                    "category": pre_generation_refusal.reason,
-                    "requires_professional": (
-                        pre_generation_refusal.requires_professional
-                    ),
-                    "urgent": pre_generation_refusal.urgent,
-                },
                 evidence_strength=evidence_strength,
                 refusal_reason=relevance["reason"],
                 refusal_stage="pre_generation",
@@ -217,15 +206,7 @@ class RAGService:
         raw_generated_answer = self._normalize_source_citations(
             generation.text.strip()
         )
-        refusal_category, clean_generated_answer = (
-            RefusalPolicy.parse_marked_answer(raw_generated_answer)
-        )
-        generation_refused = (
-            refusal_category is not None
-            or raw_generated_answer == insufficient_answer
-        )
-        if refusal_category is not None:
-            raw_generated_answer = clean_generated_answer
+        generation_refused = raw_generated_answer == insufficient_answer
 
         citation_repair_started = perf_counter()
         if generation_refused:
@@ -335,7 +316,7 @@ class RAGService:
             refused = True
             grounded = False
             refusal = {
-                "reason": refusal_category or "generation_refusal",
+                "reason": "generation_refusal",
                 "stage": "generation",
                 "generation_skipped": False,
             }
@@ -397,7 +378,6 @@ class RAGService:
             "refused": refused,
             "safety_flagged": safety_flagged,
             "refusal": refusal,
-            "refusal_guidance": None,
             "relevance": relevance,
             "evidence_strength": evidence_strength,
             "provider": generation.provider,
@@ -487,7 +467,6 @@ class RAGService:
         language: str,
         retrieval: dict[str, Any],
         relevance: dict[str, Any],
-        refusal_guidance: dict[str, Any] | None = None,
         evidence_strength: dict[str, Any],
         refusal_reason: str,
         refusal_stage: str,
@@ -513,7 +492,6 @@ class RAGService:
                 "generation_skipped": generation_skipped,
             },
             "relevance": relevance,
-            "refusal_guidance": refusal_guidance,
             "evidence_strength": evidence_strength,
             "provider": None,
             "model": None,

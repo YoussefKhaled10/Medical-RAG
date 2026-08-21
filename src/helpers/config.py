@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     COHERE_RERANK_MODEL : str = "rerank-v3.5"
     
     GENERATION_PROVIDER: str = "gemini"
+    
+    ZENMUX_API_KEY: str = ""
+    GLM_BASE_URL: str = (
+        "https://api.z.ai/api/paas/v4/"
+    )
+    GLM_GENERATION_MODEL: str = (
+        "glm-4.7-flash"
+    )
+
+    GLM_TIMEOUT_SECONDS: float = 120.0
+    
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY : str = ""
     GROQ_GENERATION_MODEL : str = "openai/gpt-oss-120b"
@@ -50,6 +61,30 @@ class Settings(BaseSettings):
     
     KEYWORD_TRANSLATION_PROVIDER : str = "groq"
     KEYWORD_TRANSLATION_MODEL : str = "openai/gpt-oss-120b"
+    
+    CLAIM_JUDGE_PROVIDER: str = "groq"
+    CLAIM_JUDGE_MODEL: str = "openai/gpt-oss-20b"
+
+    CLAIM_SUPPORT_THRESHOLD: float = 0.80
+    CLAIM_JUDGE_MAX_OUTPUT_TOKENS: int = 300
+
+    RAG_MIN_FAITHFULNESS: float = 0.90
+    RAG_BLOCK_ON_ANY_UNSUPPORTED_CLAIM: bool = True
+    
+    CITATION_REPAIR_MAX_OUTPUT_TOKENS: int = 700
+    CLAIM_JUDGE_MALFORMED_RESPONSE_RETRIES: int = 1
+    
+    RAG_MIN_CITATION_ACCURACY: float = 0.95
+    RAG_MIN_CITATION_COMPLETENESS: float = 1.0
+    
+    RAG_MIN_CITATION_ACCURACY: float = 0.95
+    RAG_MIN_CITATION_COMPLETENESS: float = 1.0
+    CLAIM_JUDGE_MALFORMED_RESPONSE_RETRIES: int = 1
+    
+    
+    RAG_STRONG_EVIDENCE_THRESHOLD: float = 0.533
+    RAG_CANDIDATE_ABSOLUTE_THRESHOLD: float = 0.0
+    RAG_CANDIDATE_RELATIVE_TO_TOP_RATIO: float = 0.0
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
