@@ -5,23 +5,24 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.services.CitationAccuracyEvaluator import CitationAccuracyEvaluator
+from src.services.CitationRepairService import CitationRepairService
 from src.services.ClaimExtractor import ClaimExtractor
 from src.services.ClaimSupportEvaluator import ClaimSupportEvaluator
-from src.services.CitationRepairService import CitationRepairService
-from src.services.CitationAccuracyEvaluator import CitationAccuracyEvaluator
 from src.services.ContextBuilder import ContextBuilder
 from src.services.EvidenceBuilder import EvidenceBuilder
 from src.services.EvidenceStrengthClassifier import EvidenceStrengthClassifier
+from src.services.LanguageDetector import LanguageDetector
 from src.services.PostGenerationSafetyGate import PostGenerationSafetyGate
 from src.services.RAGPromptBuilder import RAGPromptBuilder
-from src.services.RelevanceGate import RelevanceGate
 from src.services.RefusalPolicy import RefusalPolicy
+from src.services.RelevanceGate import RelevanceGate
 from src.services.RetrievalPipelineService import RetrievalPipelineService
 from src.stores.llm.GenerationInterface import GenerationInterface
 
 
 class RAGService:
-    """Run retrieval, generation, evidence assembly, and claim safety checks."""
+    """Run retrieval, generation, evidence assembly, and safety validation."""
 
     def __init__(
         self,
@@ -61,7 +62,9 @@ class RAGService:
     def _normalize_source_citations(answer: str) -> str:
         return re.sub(
             r"\[\s*[سsS]\s*([0-9٠-٩]+)\s*\]",
-            lambda match: f"[S{RAGService._normalize_digits(match.group(1))}]",
+            lambda match: (
+                f"[S{RAGService._normalize_digits(match.group(1))}]"
+            ),
             answer,
         )
 
@@ -76,23 +79,55 @@ class RAGService:
         sources: tuple[dict[str, Any], ...],
     ) -> list[dict[str, Any]]:
         used = cls._used_source_ids(answer)
-        return [source for source in sources if source["source_id"] in used]
+        return [
+            source
+            for source in sources
+            if source["source_id"] in used
+        ]
 
     @staticmethod
     def _milliseconds(start: float, end: float) -> float:
         return round((end - start) * 1000, 2)
 
     @staticmethod
-    def _post_generation_refusal(language: str) -> str:
-        if language == "ar":
-            return (
-                "تعذر التحقق من جميع المعلومات الواردة في الإجابة مقابل "
-                "المستندات المفهرسة، لذلك لم يتم عرض الإجابة."
-            )
-        return (
-            "Not all information in the generated answer could be verified "
-            "against the indexed documents, so the answer was not displayed."
+    def _refusal_sentences() -> tuple[str, ...]:
+        """Known refusal text excluded from factual claim extraction."""
+        questions = {
+            "ar": "ما الجرعة المناسبة لحالتي؟",
+            "en": "What dose is right for my condition?",
+            "fr": "Quelle dose convient à mon cas ?",
+        }
+        reasons = (
+            "insufficient_evidence",
+            "out_of_scope",
+            "professional_care",
+            "personalized_treatment",
+            "urgent_help",
+            "prompt_injection",
         )
+        return tuple(
+            RefusalPolicy.decision(question, reason=reason).message
+            for question in questions.values()
+            for reason in reasons
+        )
+
+    @staticmethod
+    def _post_generation_refusal(language: str) -> str:
+        messages = {
+            "ar": (
+                "تعذر التحقق من جميع المعلومات الواردة في الإجابة، "
+                "لذلك لم يتم عرضها."
+            ),
+            "fr": (
+                "Toutes les informations de la réponse n'ont pas pu être "
+                "vérifiées, elle n'a donc pas été affichée."
+            ),
+            "en": (
+                "Not all information in the generated answer could be "
+                "verified, so the answer was not displayed."
+            ),
+        }
+        return messages.get(language, messages["en"])
 
     async def ask(
         self,
@@ -110,12 +145,9 @@ class RAGService:
         if not normalized_question:
             raise ValueError("question must not be empty")
 
-        response_language = self._prompt_builder.detect_language(
-            normalized_question
-        )
-        insufficient_answer = self._prompt_builder.insufficient_answer(
-            response_language
-        )
+        detected_language = LanguageDetector.detect(normalized_question)
+        response_language = detected_language.code
+        refusal_sentences = self._refusal_sentences()
 
         retrieval_started = perf_counter()
         retrieval = await self._retrieval_pipeline.search(
@@ -128,34 +160,36 @@ class RAGService:
             use_reranking=True,
         )
         retrieval_finished = perf_counter()
-        results = retrieval["results"]
 
+        results = retrieval["results"]
         relevance = self._relevance_gate.evaluate_as_dict(results)
         evidence_strength = (
             self._evidence_strength_classifier.classify_as_dict(
                 relevance.get("top_score")
             )
         )
+
         if not relevance["passed"]:
-            pre_generation_refusal = RefusalPolicy.decision(
-                normalized_question
+            refusal_decision = RefusalPolicy.decision(
+                normalized_question,
+                low_relevance=True,
             )
             total_finished = perf_counter()
             return self._refusal_output(
                 question=normalized_question,
-                answer=pre_generation_refusal.message,
+                answer=refusal_decision.message,
                 language=response_language,
                 retrieval=retrieval,
                 relevance=relevance,
                 refusal_guidance={
-                    "category": pre_generation_refusal.reason,
+                    "category": refusal_decision.reason,
                     "requires_professional": (
-                        pre_generation_refusal.requires_professional
+                        refusal_decision.requires_professional
                     ),
-                    "urgent": pre_generation_refusal.urgent,
+                    "urgent": refusal_decision.urgent,
                 },
                 evidence_strength=evidence_strength,
-                refusal_reason=relevance["reason"],
+                refusal_reason=refusal_decision.reason,
                 refusal_stage="pre_generation",
                 generation_skipped=True,
                 safety_flagged=False,
@@ -175,7 +209,8 @@ class RAGService:
                 claims=[],
                 timings_ms={
                     "retrieval": self._milliseconds(
-                        retrieval_started, retrieval_finished
+                        retrieval_started,
+                        retrieval_finished,
                     ),
                     "context_building": 0.0,
                     "generation": 0.0,
@@ -183,7 +218,10 @@ class RAGService:
                     "citation_repair": 0.0,
                     "claim_validation": 0.0,
                     "citation_evaluation": 0.0,
-                    "total": self._milliseconds(total_started, total_finished),
+                    "total": self._milliseconds(
+                        total_started,
+                        total_finished,
+                    ),
                 },
             )
 
@@ -220,11 +258,8 @@ class RAGService:
         refusal_category, clean_generated_answer = (
             RefusalPolicy.parse_marked_answer(raw_generated_answer)
         )
-        generation_refused = (
-            refusal_category is not None
-            or raw_generated_answer == insufficient_answer
-        )
-        if refusal_category is not None:
+        generation_refused = refusal_category is not None
+        if generation_refused:
             raw_generated_answer = clean_generated_answer
 
         citation_repair_started = perf_counter()
@@ -238,14 +273,13 @@ class RAGService:
                 "reason": "generation_refusal",
             }
         else:
-            repair_result = await self._citation_repair_service.repair_if_needed(
-                raw_generated_answer,
-                sources=context.sources,
-                refusal_sentences=(
-                    self._prompt_builder.insufficient_answer("ar"),
-                    self._prompt_builder.insufficient_answer("en"),
-                ),
-                response_language=response_language,
+            repair_result = (
+                await self._citation_repair_service.repair_if_needed(
+                    raw_generated_answer,
+                    sources=context.sources,
+                    refusal_sentences=refusal_sentences,
+                    response_language=response_language,
+                )
             )
             generated_answer = self._normalize_source_citations(
                 repair_result.answer
@@ -253,19 +287,25 @@ class RAGService:
             citation_repair = {
                 "attempted": repair_result.attempted,
                 "repaired": repair_result.repaired,
-                "initial_passed": repair_result.initial_decision.passed,
+                "initial_passed": (
+                    repair_result.initial_decision.passed
+                ),
                 "final_passed": repair_result.final_decision.passed,
                 "reason": repair_result.final_decision.reason,
             }
         citation_repair_finished = perf_counter()
 
         citation_compliance_failed = (
-            not generation_refused and not citation_repair["final_passed"]
+            not generation_refused
+            and not citation_repair["final_passed"]
         )
         used_sources = (
             []
             if generation_refused or citation_compliance_failed
-            else self._select_sources(generated_answer, context.sources)
+            else self._select_sources(
+                generated_answer,
+                context.sources,
+            )
         )
 
         evidence_started = perf_counter()
@@ -281,9 +321,11 @@ class RAGService:
         evidence_finished = perf_counter()
 
         claim_validation_started = perf_counter()
+        extracted_claims = []
+        support_results = []
         if generation_refused or citation_compliance_failed:
-            claims = []
-            claim_results = []
+            claims: list[dict[str, Any]] = []
+            claim_results: list[dict[str, Any]] = []
             claim_validation = self._empty_claim_validation(
                 reason=(
                     "generation_refusal"
@@ -294,20 +336,22 @@ class RAGService:
         else:
             extracted_claims = self._claim_extractor.extract(
                 generated_answer,
-                refusal_sentences=(
-                    self._prompt_builder.insufficient_answer("ar"),
-                    self._prompt_builder.insufficient_answer("en"),
-                ),
+                refusal_sentences=refusal_sentences,
             )
-            support_results = await self._claim_support_evaluator.evaluate(
-                extracted_claims,
-                evidence=evidence,
+            support_results = (
+                await self._claim_support_evaluator.evaluate(
+                    extracted_claims,
+                    evidence=evidence,
+                )
             )
             decision = self._post_generation_safety_gate.evaluate(
                 support_results
             )
             claims = [asdict(claim) for claim in extracted_claims]
-            claim_results = [asdict(result) for result in support_results]
+            claim_results = [
+                asdict(result)
+                for result in support_results
+            ]
             claim_validation = asdict(decision)
         claim_validation_finished = perf_counter()
 
@@ -321,15 +365,18 @@ class RAGService:
                 reason="citation_repair_failed"
             )
         else:
-            citation_report = self._citation_accuracy_evaluator.evaluate(
-                claims=extracted_claims,
-                claim_results=support_results,
-                sources=used_sources,
-                evidence=evidence,
+            citation_report = (
+                self._citation_accuracy_evaluator.evaluate(
+                    claims=extracted_claims,
+                    claim_results=support_results,
+                    sources=used_sources,
+                    evidence=evidence,
+                )
             )
             citation_evaluation = asdict(citation_report)
         citation_evaluation_finished = perf_counter()
 
+        refusal_guidance: dict[str, Any] | None = None
         if generation_refused:
             answer = generated_answer
             refused = True
@@ -338,6 +385,15 @@ class RAGService:
                 "reason": refusal_category or "generation_refusal",
                 "stage": "generation",
                 "generation_skipped": False,
+            }
+            refusal_guidance = {
+                "category": refusal_category or "generation_refusal",
+                "requires_professional": refusal_category in {
+                    "professional_care",
+                    "personalized_treatment",
+                    "urgent_help",
+                },
+                "urgent": refusal_category == "urgent_help",
             }
             safety_flagged = False
             returned_sources: list[dict[str, Any]] = []
@@ -397,7 +453,7 @@ class RAGService:
             "refused": refused,
             "safety_flagged": safety_flagged,
             "refusal": refusal,
-            "refusal_guidance": None,
+            "refusal_guidance": refusal_guidance,
             "relevance": relevance,
             "evidence_strength": evidence_strength,
             "provider": generation.provider,
@@ -407,7 +463,6 @@ class RAGService:
             "evidence": returned_evidence,
             "claims": claims,
             "claim_results": claim_results,
-            "citation_repair": citation_repair,
             "citation_repair": citation_repair,
             "claim_validation": claim_validation,
             "citation_evaluation": citation_evaluation,
@@ -419,28 +474,37 @@ class RAGService:
             },
             "timings_ms": {
                 "retrieval": self._milliseconds(
-                    retrieval_started, retrieval_finished
+                    retrieval_started,
+                    retrieval_finished,
                 ),
                 "context_building": self._milliseconds(
-                    context_started, context_finished
+                    context_started,
+                    context_finished,
                 ),
                 "generation": self._milliseconds(
-                    generation_started, generation_finished
+                    generation_started,
+                    generation_finished,
                 ),
                 "evidence_building": self._milliseconds(
-                    evidence_started, evidence_finished
+                    evidence_started,
+                    evidence_finished,
                 ),
                 "citation_repair": self._milliseconds(
-                    citation_repair_started, citation_repair_finished
+                    citation_repair_started,
+                    citation_repair_finished,
                 ),
                 "claim_validation": self._milliseconds(
-                    claim_validation_started, claim_validation_finished
+                    claim_validation_started,
+                    claim_validation_finished,
                 ),
                 "citation_evaluation": self._milliseconds(
                     citation_evaluation_started,
                     citation_evaluation_finished,
                 ),
-                "total": self._milliseconds(total_started, total_finished),
+                "total": self._milliseconds(
+                    total_started,
+                    total_finished,
+                ),
             },
         }
 
@@ -512,8 +576,8 @@ class RAGService:
                 "stage": refusal_stage,
                 "generation_skipped": generation_skipped,
             },
-            "relevance": relevance,
             "refusal_guidance": refusal_guidance,
+            "relevance": relevance,
             "evidence_strength": evidence_strength,
             "provider": None,
             "model": None,
@@ -522,7 +586,6 @@ class RAGService:
             "evidence": [],
             "claims": claims,
             "claim_results": [],
-            "citation_repair": citation_repair,
             "citation_repair": citation_repair,
             "claim_validation": claim_validation,
             "citation_evaluation": citation_evaluation,

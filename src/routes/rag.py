@@ -19,7 +19,12 @@ class RAGRequest(BaseModel):
     project_id: int | None = Field(default=None, gt=0)
     asset_id: int | None = Field(default=None, gt=0)
     retrieval_limit: int = Field(default=5, ge=1, le=10)
-    generation_provider: Literal["gemini", "groq", "manus", "glm"] | None = None
+    generation_provider: Literal[
+        "gemini",
+        "groq",
+        "manus",
+        "glm",
+    ] | None = None
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_output_tokens: int = Field(default=1200, ge=64, le=8192)
 
@@ -75,7 +80,11 @@ class RAGRefusalGuidance(BaseModel):
 
 class RAGRefusal(BaseModel):
     reason: str
-    stage: Literal["pre_generation", "generation", "post_generation"]
+    stage: Literal[
+        "pre_generation",
+        "generation",
+        "post_generation",
+    ]
     generation_skipped: bool
 
 
@@ -154,7 +163,7 @@ class RAGResponse(BaseModel):
     question: str
     answer: str
     recommendation: str
-    answer_language: Literal["ar", "en"]
+    answer_language: str
     grounded: bool
     refused: bool
     safety_flagged: bool
@@ -210,7 +219,10 @@ async def ask_rag(
         }
         if exc.retry_after_seconds is not None:
             detail["retry_after_seconds"] = exc.retry_after_seconds
-        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -254,9 +266,12 @@ async def ask_rag(
         evidence=[RAGEvidence(**item) for item in output["evidence"]],
         claims=[RAGClaim(**item) for item in output["claims"]],
         claim_results=[
-            RAGClaimResult(**item) for item in output["claim_results"]
+            RAGClaimResult(**item)
+            for item in output["claim_results"]
         ],
-        citation_repair=RAGCitationRepair(**output["citation_repair"]),
+        citation_repair=RAGCitationRepair(
+            **output["citation_repair"]
+        ),
         citation_evaluation=RAGCitationEvaluation(
             **output["citation_evaluation"]
         ),
@@ -270,15 +285,19 @@ async def ask_rag(
             "pre_dedup_count": retrieval["pre_dedup_count"],
             "post_dedup_count": retrieval["post_dedup_count"],
             "final_result_count": len(retrieval["results"]),
-            "removed_duplicate_count": len(retrieval["removed_duplicates"]),
+            "removed_duplicate_count": len(
+                retrieval["removed_duplicates"]
+            ),
             "cross_language_keyword_used": retrieval.get(
-                "cross_language_keyword_used", False
+                "cross_language_keyword_used",
+                False,
             ),
             "effective_keyword_query": retrieval.get(
                 "effective_keyword_query"
             ),
             "chunk_ids": [
-                item["chunk_id"] for item in retrieval["results"]
+                item["chunk_id"]
+                for item in retrieval["results"]
             ],
         },
     )

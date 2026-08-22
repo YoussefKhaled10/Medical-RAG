@@ -1,72 +1,18 @@
-from typing import Any
+from __future__ import annotations
 
+from typing import Any
 import httpx
 
 
-class APIClientError(RuntimeError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        retryable: bool = False,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.retryable = retryable
-
-
 class APIClient:
+    """Small HTTP client used by the Streamlit application."""
+
     def __init__(self, base_url: str = "http://127.0.0.1:8000") -> None:
-        self.base_url = base_url.rstrip("/")
-
-    @staticmethod
-    def _timeout(seconds: float) -> httpx.Timeout:
-        return httpx.Timeout(
-            connect=min(10.0, seconds),
-            read=seconds,
-            write=min(30.0, seconds),
-            pool=min(10.0, seconds),
-        )
-
-    def health_check(self) -> bool:
-        try:
-            with httpx.Client(timeout=self._timeout(3.0)) as client:
-                response = client.get(f"{self.base_url}/api/v1/")
-                return response.status_code == 200
-        except httpx.HTTPError:
-            return False
-
-    @staticmethod
-    def _raise_error(response: httpx.Response, fallback: str) -> None:
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {}
-
-        detail = payload.get("detail", payload)
-        if isinstance(detail, dict):
-            message = str(
-                detail.get("message")
-                or detail.get("error")
-                or fallback
-            )
-            retry_after = detail.get("retry_after_seconds")
-            if retry_after is not None:
-                message = f"{message} Retry after {retry_after} seconds."
-            retryable = bool(detail.get("retryable", False))
-        else:
-            message = str(detail or response.text or fallback)
-            retryable = response.status_code in {429, 502, 503, 504}
-
-        raise APIClientError(
-            message,
-            status_code=response.status_code,
-            retryable=retryable,
-        )
+        self.base_url = str(base_url).rstrip("/")
 
     def ask_rag(
         self,
+        *,
         question: str,
         project_id: int | None = None,
         asset_id: int | None = None,
@@ -86,58 +32,65 @@ class APIClient:
             payload["project_id"] = project_id
         if asset_id is not None:
             payload["asset_id"] = asset_id
-        if generation_provider is not None:
+        if generation_provider:
             payload["generation_provider"] = generation_provider
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.post(f"{self.base_url}/api/v1/rag/ask", json=payload)
+            response.raise_for_status()
+            return response.json()
 
-        try:
-            with httpx.Client(timeout=self._timeout(timeout_seconds)) as client:
-                response = client.post(
-                    f"{self.base_url}/api/v1/rag/ask",
-                    json=payload,
-                )
-        except httpx.TimeoutException as exc:
-            raise APIClientError(
-                "The request timed out while waiting for retrieval or generation.",
-                retryable=True,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise APIClientError(
-                "Could not connect to the Medical RAG backend.",
-                retryable=True,
-            ) from exc
-
-        if response.status_code != 200:
-            self._raise_error(response, "RAG request failed")
-        return response.json()
+    ask_question = ask_rag
+    ask = ask_rag
 
     def upload_pdf(
         self,
+        *,
         project_id: int,
         file_bytes: bytes,
         file_name: str,
         timeout_seconds: float = 300.0,
     ) -> dict[str, Any]:
-        files = {"file": (file_name, file_bytes, "application/pdf")}
-        data = {"project_id": project_id}
+        endpoint = (
+            f"{self.base_url}/api/v1/ingestion/upload-index"
+        )
+
+        files = {
+            "file": (
+                file_name,
+                file_bytes,
+                "application/pdf",
+            ),
+        }
+        data = {
+            "project_id": str(project_id),
+        }
 
         try:
-            with httpx.Client(timeout=self._timeout(timeout_seconds)) as client:
+            with httpx.Client(
+                timeout=timeout_seconds,
+            ) as client:
                 response = client.post(
-                    f"{self.base_url}/api/v1/ingestion/upload-index",
-                    data=data,
+                    endpoint,
                     files=files,
+                    data=data,
                 )
-        except httpx.TimeoutException as exc:
-            raise APIClientError(
-                "Document indexing timed out.",
-                retryable=True,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise APIClientError(
-                "Could not connect to the ingestion API.",
-                retryable=True,
+
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.HTTPStatusError as exc:
+            try:
+                detail = exc.response.json()
+            except ValueError:
+                detail = exc.response.text
+
+            raise RuntimeError(
+                "Upload API returned HTTP "
+                f"{exc.response.status_code}: {detail}"
             ) from exc
 
-        if response.status_code not in (200, 201):
-            self._raise_error(response, "Document upload failed")
-        return response.json()
+        except httpx.RequestError as exc:
+            raise RuntimeError(
+                "Could not connect to the upload API at "
+                f"{endpoint}: {exc}"
+            ) from exc
