@@ -55,8 +55,32 @@ class HybridRetrievalService:
         self._query_rewriter = query_rewriter or QueryRewriter()
         self._keyword_translator = keyword_translator
 
+    @staticmethod
+    def _keyword_query_from_hints(
+        keyword_hints: tuple[str, ...] | list[str] | None,
+    ) -> str | None:
+        unique: list[str] = []
+        seen: set[str] = set()
+        for raw_hint in keyword_hints or ():
+            hint = " ".join(str(raw_hint).split()).strip()
+            if not hint:
+                continue
+            key = hint.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(hint)
+
+        if not unique:
+            return None
+
+        return " OR ".join(unique)
+
     async def _semantic_search(
-        self, query: str, project_id: int | None, asset_id: int | None
+        self,
+        query: str,
+        project_id: int | None,
+        asset_id: int | None,
     ) -> list[_Candidate]:
         filters: dict[str, Any] = {}
         if project_id is not None:
@@ -79,18 +103,20 @@ class HybridRetrievalService:
             chunk_id = metadata.get("chunk_id")
             if result_asset_id is None or not chunk_id:
                 continue
-            candidates.append(_Candidate(
-                key=f"{result_asset_id}:{chunk_id}",
-                asset_id=int(result_asset_id),
-                project_id=metadata.get("project_id"),
-                chunk_id=str(chunk_id),
-                document_name=str(metadata.get("document_name") or ""),
-                section_title=str(metadata.get("section_title") or ""),
-                page_number=int(metadata.get("page_number") or 1),
-                text=result.text,
-                semantic_rank=rank,
-                semantic_score=float(result.score),
-            ))
+            candidates.append(
+                _Candidate(
+                    key=f"{result_asset_id}:{chunk_id}",
+                    asset_id=int(result_asset_id),
+                    project_id=metadata.get("project_id"),
+                    chunk_id=str(chunk_id),
+                    document_name=str(metadata.get("document_name") or ""),
+                    section_title=str(metadata.get("section_title") or ""),
+                    page_number=int(metadata.get("page_number") or 1),
+                    text=result.text,
+                    semantic_rank=rank,
+                    semantic_score=float(result.score),
+                )
+            )
         return candidates
 
     async def _keyword_search(
@@ -131,13 +157,13 @@ class HybridRetrievalService:
         fused: dict[str, _Candidate] = {}
         for candidate in semantic:
             candidate.rrf_score = 1.0 / (
-                self._rrf_k + candidate.semantic_rank
+                self._rrf_k + int(candidate.semantic_rank or 0)
             )
             fused[candidate.key] = candidate
 
         for candidate in keyword:
             contribution = 1.0 / (
-                self._rrf_k + candidate.keyword_rank
+                self._rrf_k + int(candidate.keyword_rank or 0)
             )
             if candidate.key in fused:
                 existing = fused[candidate.key]
@@ -172,12 +198,14 @@ class HybridRetrievalService:
             "semantic_rank": candidate.semantic_rank,
             "semantic_score": (
                 round(candidate.semantic_score, 6)
-                if candidate.semantic_score is not None else None
+                if candidate.semantic_score is not None
+                else None
             ),
             "keyword_rank": candidate.keyword_rank,
             "keyword_score": (
                 round(candidate.keyword_score, 6)
-                if candidate.keyword_score is not None else None
+                if candidate.keyword_score is not None
+                else None
             ),
             "rrf_score": round(candidate.rrf_score, 8),
         }
@@ -192,50 +220,85 @@ class HybridRetrievalService:
         asset_id: int | None = None,
         use_query_rewriting: bool = False,
         use_cross_language_keyword: bool = False,
+        semantic_query: str | None = None,
+        keyword_hints: tuple[str, ...] | list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], RewrittenQuery, str]:
         rewritten = self._query_rewriter.rewrite(query)
 
-        # Semantic retrieval always receives the original query. This preserves
-        # the evaluated English baseline and the successful Arabic cross-lingual path.
-        semantic_query = rewritten.original_query
+        effective_semantic_query = " ".join(
+            str(
+                semantic_query
+                or (
+                    rewritten.semantic_query
+                    if use_query_rewriting
+                    else rewritten.original_query
+                )
+            ).split()
+        ).strip()
+        if not effective_semantic_query:
+            effective_semantic_query = rewritten.original_query
+
+        hint_keyword_query = self._keyword_query_from_hints(keyword_hints)
         keyword_query = (
-            rewritten.keyword_query
-            if use_query_rewriting
-            else rewritten.original_query
+            hint_keyword_query
+            or (
+                rewritten.keyword_query
+                if use_query_rewriting
+                else rewritten.original_query
+            )
         )
 
         if (
             use_cross_language_keyword
             and self._keyword_translator is not None
         ):
-            keyword_query = (
+            translated = (
                 await self._keyword_translator.translate_for_keyword_search(
                     keyword_query
                 )
             )
+            if translated and translated != keyword_query:
+                keyword_query = translated
+
+        effective_rewritten = RewrittenQuery(
+            original_query=rewritten.original_query,
+            semantic_query=effective_semantic_query,
+            keyword_query=keyword_query,
+            expansions=tuple(keyword_hints or rewritten.expansions),
+        )
 
         if search_type == SearchType.SEMANTIC:
             candidates = await self._semantic_search(
-                semantic_query, project_id, asset_id
+                effective_semantic_query,
+                project_id,
+                asset_id,
             )
             for item in candidates:
                 item.rrf_score = 1.0 / (
-                    self._rrf_k + item.semantic_rank
+                    self._rrf_k + int(item.semantic_rank or 0)
                 )
         elif search_type == SearchType.KEYWORD:
             candidates = await self._keyword_search(
-                session, keyword_query, project_id, asset_id
+                session,
+                keyword_query,
+                project_id,
+                asset_id,
             )
             for item in candidates:
                 item.rrf_score = 1.0 / (
-                    self._rrf_k + item.keyword_rank
+                    self._rrf_k + int(item.keyword_rank or 0)
                 )
         else:
             semantic = await self._semantic_search(
-                semantic_query, project_id, asset_id
+                effective_semantic_query,
+                project_id,
+                asset_id,
             )
             keyword = await self._keyword_search(
-                session, keyword_query, project_id, asset_id
+                session,
+                keyword_query,
+                project_id,
+                asset_id,
             )
             candidates = self._fuse(semantic, keyword)
 
@@ -243,7 +306,7 @@ class HybridRetrievalService:
             self._to_output(item, rank)
             for rank, item in enumerate(candidates[:limit], start=1)
         ]
-        return output, rewritten, keyword_query
+        return output, effective_rewritten, keyword_query
 
     async def close(self) -> None:
         await self._embedding_provider.close()

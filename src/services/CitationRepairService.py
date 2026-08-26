@@ -28,7 +28,7 @@ class CitationRepairResult:
 
 
 class CitationRepairService:
-    """Perform one evidence-bound repair with sentence-level citation rules."""
+    """Perform one evidence-bound citation repair and fail closed."""
 
     def __init__(
         self,
@@ -42,57 +42,94 @@ class CitationRepairService:
         self._max_output_tokens = max_output_tokens
 
     @staticmethod
-    def _source_catalog(sources: tuple[dict[str, Any], ...]) -> str:
-        return "\n\n".join(
-            f"[{source['source_id']}]\n{str(source.get('text') or '').strip()}"
-            for source in sources
-        )
+    def _source_catalog(
+        sources: tuple[dict[str, Any], ...],
+    ) -> str:
+        blocks: list[str] = []
+        for source in sources:
+            source_id = str(source.get("source_id") or "").strip()
+            if not source_id:
+                continue
+            content = str(
+                source.get("content")
+                or source.get("text")
+                or source.get("excerpt")
+                or ""
+            ).strip()
+            blocks.append(
+                "\n".join(
+                    (
+                        f"[{source_id}]",
+                        f"Document: {source.get('document_name') or ''}",
+                        f"Section: {source.get('section_title') or ''}",
+                        f"Page: {source.get('page_number') or ''}",
+                        f"Content: {content}",
+                    )
+                )
+            )
+        return "\n\n".join(blocks)
 
     async def repair_if_needed(
         self,
         answer: str,
         *,
         sources: tuple[dict[str, Any], ...],
-        refusal_sentences: tuple[str, ...],
-        response_language: str,
+        refusal_sentences: tuple[str, ...] = (),
+        response_language: str = "en",
     ) -> CitationRepairResult:
-        available_ids = {source["source_id"] for source in sources}
+        available_ids = {
+            str(source.get("source_id") or "").upper()
+            for source in sources
+            if source.get("source_id")
+        }
         initial = self._validator.evaluate(
             answer,
             available_source_ids=available_ids,
             refusal_sentences=refusal_sentences,
         )
         if initial.passed:
-            return CitationRepairResult(answer, False, False, initial, initial)
+            return CitationRepairResult(
+                answer=answer,
+                attempted=False,
+                repaired=False,
+                initial_decision=initial,
+                final_decision=initial,
+            )
 
-        language_name = "Arabic" if response_language == "ar" else "English"
-        system_prompt = f"""You repair citation structure in a grounded medical answer.
-Return only the repaired answer in {language_name}.
+        system_prompt = f"""
+You repair citation structure using only the supplied source catalog.
+
+The response language code is {response_language}. Preserve the answer language.
 
 CONTENT RULES
-1. Preserve the original supported meaning and add no new fact.
-2. Use only the supplied source catalog and source IDs.
-3. Remove any fact that cannot be supported by the supplied sources.
-4. Keep medicine names exactly as written in the source catalog.
-5. Do not translate or transliterate medicine names.
+- Preserve only facts directly supported by the supplied sources.
+- Add no new fact and use no outside knowledge.
+- Remove every statement that cannot be supported directly.
+- Use only source IDs present in the source catalog.
+- Keep medicine names exactly as written in the source catalog.
 
-OUTPUT STRUCTURE RULES
-1. Return plain complete sentences only.
-2. Start directly with the first supported factual sentence.
-3. Every non-empty sentence must end with at least one valid citation such as [S1].
-4. Do not output headings, labels, introductory fragments, bullet points, numbered lists, or colon-ended introductions.
-5. Do not write phrases such as 'the following information' as a separate sentence.
-6. For a multi-part answer, keep each independently verifiable fact in a separate cited sentence.
-7. A medicine list may remain one cited sentence.
-8. Before returning, verify that every sentence contains a valid source ID.
-9. Return only the answer. Do not explain the repair or mention these rules."""
+OUTPUT RULES
+- Return no more than three plain complete factual sentences.
+- Each sentence must express one atomic claim.
+- Every sentence must end with at least one valid citation on the SAME LINE, immediately before the final punctuation.
+- Correct: supported statement [S1].
+- Incorrect: supported statement. followed by [S1] on another line.
+- Never return a citation-only line.
+- Never return headings, labels, bullets, numbered lists, introductions, transitions, conclusions, notes, or explanations.
+- If the original answer contains an uncited sentence, either add a directly supporting source ID or remove the sentence.
+- Before returning, verify that every non-empty sentence contains a valid source ID.
+- Return only the repaired answer.
+        """.strip()
+
         user_prompt = (
-            "ORIGINAL ANSWER:\n"
+            "ORIGINAL ANSWER\n\n"
             f"{answer}\n\n"
-            "AVAILABLE SOURCES:\n"
+            "AVAILABLE SOURCE CATALOG\n\n"
             f"{self._source_catalog(sources)}\n\n"
-            "Rewrite as plain cited sentences only. Every sentence must end with a valid citation."
+            "Rewrite the answer as at most three atomic cited sentences. "
+            "Every sentence must include its citation on the same line."
         )
+
         generation = await self._provider.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -105,10 +142,11 @@ OUTPUT STRUCTURE RULES
             available_source_ids=available_ids,
             refusal_sentences=refusal_sentences,
         )
+
         return CitationRepairResult(
-            repaired_answer,
-            True,
-            final.passed,
-            initial,
-            final,
+            answer=repaired_answer,
+            attempted=True,
+            repaired=final.passed,
+            initial_decision=initial,
+            final_decision=final,
         )

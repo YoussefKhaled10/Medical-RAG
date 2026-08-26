@@ -16,8 +16,13 @@ from src.services.LanguageDetector import LanguageDetector
 from src.services.PostGenerationSafetyGate import PostGenerationSafetyGate
 from src.services.RAGPromptBuilder import RAGPromptBuilder
 from src.services.RefusalPolicy import RefusalPolicy
+from src.services.IntentUnderstandingService import IntentUnderstandingService
+from src.services.QueryUnderstandingService import QueryUnderstandingService
 from src.services.RelevanceGate import RelevanceGate
 from src.services.RetrievalPipelineService import RetrievalPipelineService
+from src.services.RetrievalRetryService import RetrievalRetryService
+from src.services.SupportedAnswerRebuilder import SupportedAnswerRebuilder
+from src.services.UnsupportedClaimPruner import UnsupportedClaimPruner
 from src.stores.llm.GenerationInterface import GenerationInterface
 
 
@@ -39,6 +44,10 @@ class RAGService:
         post_generation_safety_gate: PostGenerationSafetyGate,
         claim_judge_provider: GenerationInterface,
         evidence_builder: EvidenceBuilder | None = None,
+        query_understanding_service: IntentUnderstandingService | None = None,
+        retrieval_retry_service: RetrievalRetryService | None = None,
+        unsupported_claim_pruner: UnsupportedClaimPruner | None = None,
+        supported_answer_rebuilder: SupportedAnswerRebuilder | None = None,
     ) -> None:
         self._retrieval_pipeline = retrieval_pipeline
         self._context_builder = context_builder
@@ -53,6 +62,63 @@ class RAGService:
         self._post_generation_safety_gate = post_generation_safety_gate
         self._claim_judge_provider = claim_judge_provider
         self._evidence_builder = evidence_builder or EvidenceBuilder()
+        self._unsupported_claim_pruner = (
+            unsupported_claim_pruner
+            or UnsupportedClaimPruner()
+        )
+        self._supported_answer_rebuilder = supported_answer_rebuilder
+        if query_understanding_service is None:
+            raise ValueError("query_understanding_service is required")
+        self._query_understanding = query_understanding_service
+        self._retrieval_retry_service = retrieval_retry_service
+
+    @staticmethod
+    def _normalize_question(question: str) -> str:
+        normalized = " ".join(
+            str(question or "").split()
+        ).strip()
+
+        if not normalized:
+            raise ValueError(
+                "question must not be empty"
+            )
+
+        return normalized
+
+    @staticmethod
+    def _clean_conversation_history(
+        conversation_history: list[dict[str, str]] | None,
+    ) -> list[dict[str, str]]:
+        cleaned: list[dict[str, str]] = []
+
+        for item in (conversation_history or [])[-8:]:
+            role = str(
+                item.get("role") or ""
+            ).strip().lower()
+
+            content = " ".join(
+                str(
+                    item.get("content") or ""
+                ).split()
+            ).strip()
+
+            if role not in {
+                "user",
+                "assistant",
+            }:
+                continue
+
+            if not content:
+                continue
+
+            cleaned.append(
+                {
+                    "role": role,
+                    "content": content[:1800],
+                }
+            )
+
+        return cleaned
 
     @staticmethod
     def _normalize_digits(value: str) -> str:
@@ -112,6 +178,122 @@ class RAGService:
         )
 
     @staticmethod
+    def _social_fallback(language: str) -> str:
+        """Use only when the intent provider fails to return social text."""
+        messages = {
+            "ar": "تمام، أنا موجود لو احتجتني.",
+            "fr": "D'accord, je reste disponible si vous en avez besoin.",
+            "en": "All right, I'm here if you need me.",
+        }
+        return messages.get(language, messages["en"])
+
+    @staticmethod
+    def _social_output(
+        *,
+        question: str,
+        answer: str,
+        language: str,
+        query_understanding: dict[str, Any],
+        total_ms: float,
+    ) -> dict[str, Any]:
+        """Return the intent model's social response without RAG."""
+        return {
+            "question": question,
+            "answer": answer,
+            "recommendation": answer,
+            "answer_language": language,
+            "grounded": False,
+            "refused": False,
+            "safety_flagged": False,
+            "refusal": None,
+            "refusal_guidance": None,
+            "relevance": {
+                "passed": True,
+                "reason": "social_conversation_no_retrieval",
+                "top_score": None,
+                "second_score": None,
+                "score_margin": None,
+                "threshold": 0.320982,
+                "qualified_chunk_count": 0,
+                "minimum_qualified_chunks": 0,
+            },
+            "evidence_strength": {
+                "level": "insufficient",
+                "top_score": None,
+                "relevance_threshold": 0.320982,
+                "strong_threshold": 0.533,
+                "language_policy": "social_response_no_evidence_needed",
+                "answer_allowed": True,
+                "rationale": "Social conversation does not require retrieval.",
+            },
+            "provider": None,
+            "model": None,
+            "request_id": None,
+            "sources": [],
+            "evidence": [],
+            "claims": [],
+            "claim_results": [],
+            "citation_repair": {
+                "attempted": False,
+                "repaired": False,
+                "initial_passed": True,
+                "final_passed": True,
+                "reason": "social_conversation_no_generation",
+            },
+            "claim_validation": {
+                "passed": True,
+                "reason": "social_conversation_no_generation",
+                "total_claims": 0,
+                "supported_claims": 0,
+                "unsupported_claims": 0,
+                "faithfulness": 1.0,
+                "minimum_faithfulness": 0.90,
+                "unsupported_claim_ids": (),
+            },
+            "citation_evaluation": {
+                "total_claims": 0,
+                "cited_claims": 0,
+                "uncited_claims": 0,
+                "citation_completeness": 1.0,
+                "total_citation_links": 0,
+                "correct_citation_links": 0,
+                "incorrect_citation_links": 0,
+                "citation_accuracy": None,
+                "unique_source_count": 0,
+                "invalid_source_ids": (),
+                "metadata_accuracy": None,
+                "claim_support_accuracy": None,
+                "passed": True,
+                "minimum_citation_accuracy": 0.95,
+                "minimum_citation_completeness": 1.0,
+                "items": (),
+                "reason": "social_conversation_no_generation",
+            },
+            "retrieval": {
+                "results": [],
+                "pre_dedup_count": 0,
+                "post_dedup_count": 0,
+                "removed_duplicates": [],
+                "cross_language_keyword_used": False,
+                "effective_keyword_query": None,
+                "query_understanding": query_understanding,
+                "social_conversation": True,
+            },
+            "context_characters": 0,
+            "generation_config": None,
+            "timings_ms": {
+                "retrieval": 0.0,
+                "context_building": 0.0,
+                "generation": 0.0,
+                "evidence_building": 0.0,
+                "citation_repair": 0.0,
+                "claim_validation": 0.0,
+                "citation_evaluation": 0.0,
+                "total": total_ms,
+            },
+        }
+
+    @staticmethod
     def _post_generation_refusal(language: str) -> str:
         messages = {
             "ar": (
@@ -139,28 +321,160 @@ class RAGService:
         retrieval_limit: int = 5,
         temperature: float = 0.0,
         max_output_tokens: int = 1200,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         total_started = perf_counter()
         normalized_question = " ".join(question.split()).strip()
         if not normalized_question:
             raise ValueError("question must not be empty")
 
+        cleaned_history = self._clean_conversation_history(
+            conversation_history
+        )
+
+        understood_query = await self._query_understanding.understand(
+            normalized_question,
+            conversation_history=cleaned_history,
+        )
         detected_language = LanguageDetector.detect(normalized_question)
         response_language = detected_language.code
         refusal_sentences = self._refusal_sentences()
 
+        # The intent model both classifies and writes social responses.
+        # QueryUnderstanding currently carries that response in
+        # clarification_message, so no retrieval or second generation call
+        # is needed here.
+        if understood_query.intent == "social":
+            social_answer = (
+                understood_query.clarification_message
+                or self._social_fallback(response_language)
+            )
+            social_finished = perf_counter()
+            return self._social_output(
+                question=normalized_question,
+                answer=social_answer,
+                language=response_language,
+                query_understanding=understood_query.as_dict(),
+                total_ms=self._milliseconds(
+                    total_started,
+                    social_finished,
+                ),
+            )
+
+        # Handle safety, ambiguity, and clear out-of-scope requests
+        # before retrieval, generation, or evidence validation.
+        pre_reason = understood_query.safety_reason
+        if pre_reason is None and understood_query.intent == "out_of_scope":
+            pre_reason = "out_of_scope"
+
+        if pre_reason is not None or understood_query.ambiguous:
+            if understood_query.ambiguous:
+                answer = (
+                    understood_query.clarification_message
+                    or RefusalPolicy.decision(
+                        normalized_question,
+                        reason="insufficient_evidence",
+                    ).message
+                )
+                category = "insufficient_evidence"
+                requires_professional = False
+                urgent = False
+            else:
+                decision = RefusalPolicy.decision(
+                    normalized_question,
+                    reason=pre_reason,
+                )
+                answer = decision.message
+                category = decision.reason
+                requires_professional = decision.requires_professional
+                urgent = decision.urgent
+
+            total_finished = perf_counter()
+            empty_retrieval = {
+                "results": [],
+                "pre_dedup_count": 0,
+                "post_dedup_count": 0,
+                "removed_duplicates": [],
+                "cross_language_keyword_used": False,
+                "effective_keyword_query": None,
+                "query_understanding": understood_query.as_dict(),
+            }
+            empty_relevance = {
+                "passed": False,
+                "reason": "pre_retrieval_policy_decision",
+                "top_score": None,
+                "second_score": None,
+                "score_margin": None,
+                "threshold": 0.320982,
+                "qualified_chunk_count": 0,
+                "minimum_qualified_chunks": 1,
+            }
+            empty_strength = {
+                "level": "insufficient",
+                "top_score": None,
+                "relevance_threshold": 0.320982,
+                "strong_threshold": 0.533,
+                "language_policy": "generation_not_run",
+                "answer_allowed": False,
+                "rationale": "Handled before retrieval by policy.",
+            }
+            return self._refusal_output(
+                question=normalized_question,
+                answer=answer,
+                language=response_language,
+                retrieval=empty_retrieval,
+                relevance=empty_relevance,
+                refusal_guidance={
+                    "category": category,
+                    "requires_professional": requires_professional,
+                    "urgent": urgent,
+                },
+                evidence_strength=empty_strength,
+                refusal_reason=category,
+                refusal_stage="pre_generation",
+                generation_skipped=True,
+                safety_flagged=urgent,
+                citation_repair={
+                    "attempted": False,
+                    "repaired": False,
+                    "initial_passed": True,
+                    "final_passed": True,
+                    "reason": "generation_not_run",
+                },
+                citation_evaluation=self._empty_citation_evaluation(
+                    reason="generation_not_run"
+                ),
+                claim_validation=self._empty_claim_validation(
+                    reason="generation_not_run"
+                ),
+                claims=[],
+                timings_ms={
+                    "retrieval": 0.0,
+                    "context_building": 0.0,
+                    "generation": 0.0,
+                    "evidence_building": 0.0,
+                    "citation_repair": 0.0,
+                    "claim_validation": 0.0,
+                    "citation_evaluation": 0.0,
+                    "total": self._milliseconds(total_started, total_finished),
+                },
+            )
+
         retrieval_started = perf_counter()
         retrieval = await self._retrieval_pipeline.search(
             session=session,
-            query=normalized_question,
+            query=understood_query.semantic_query,
             limit=retrieval_limit,
             project_id=project_id,
             asset_id=asset_id,
             use_deduplication=True,
             use_reranking=True,
+            semantic_query=understood_query.semantic_query,
+            keyword_hints=understood_query.keyword_hints,
         )
         retrieval_finished = perf_counter()
 
+        retrieval["query_understanding"] = understood_query.as_dict()
         results = retrieval["results"]
         relevance = self._relevance_gate.evaluate_as_dict(results)
         evidence_strength = (
@@ -168,6 +482,74 @@ class RAGService:
                 relevance.get("top_score")
             )
         )
+
+        # ── Retrieval retry ─────────────────────────────────────────────
+        # If the first pass fails the relevance gate and a retry service is
+        # wired, generate a richer retrieval query from the weak candidates
+        # and make a second attempt before giving up.
+        retrieval_retry_info: dict[str, Any] = {
+            "attempted": False,
+            "used": False,
+            "first_top_score": relevance.get("top_score"),
+            "retry_top_score": None,
+            "retry_query": None,
+            "rationale": None,
+            "error": None,
+        }
+
+        if not relevance["passed"] and self._retrieval_retry_service is not None:
+            try:
+                retry_q = await self._retrieval_retry_service.rewrite(
+                    user_question=normalized_question,
+                    intent=understood_query.intent,
+                    first_query=understood_query.semantic_query,
+                    retrieval=retrieval,
+                )
+                retrieval_retry_info["attempted"] = True
+                retrieval_retry_info["retry_query"] = retry_q.semantic_query
+                retrieval_retry_info["rationale"] = retry_q.rationale
+
+                retry_retrieval = await self._retrieval_pipeline.search(
+                    session=session,
+                    query=retry_q.semantic_query,
+                    limit=retrieval_limit,
+                    project_id=project_id,
+                    asset_id=asset_id,
+                    use_deduplication=True,
+                    use_reranking=True,
+                    semantic_query=retry_q.semantic_query,
+                    keyword_hints=retry_q.keyword_hints,  # fresh start — no hints to avoid re-narrowing
+                )
+                retry_relevance = self._relevance_gate.evaluate_as_dict(
+                    retry_retrieval["results"]
+                )
+                retrieval_retry_info["retry_top_score"] = retry_relevance.get(
+                    "top_score"
+                )
+
+                if retry_relevance["passed"]:
+                    # Replace everything with the better retrieval
+                    retrieval_retry_info["used"] = True
+                    retry_retrieval["query_understanding"] = (
+                        understood_query.as_dict()
+                    )
+                    retry_retrieval["retrieval_retry"] = retrieval_retry_info
+                    retrieval = retry_retrieval
+                    results = retrieval["results"]
+                    relevance = retry_relevance
+                    evidence_strength = (
+                        self._evidence_strength_classifier.classify_as_dict(
+                            relevance.get("top_score")
+                        )
+                    )
+                else:
+                    retrieval["retrieval_retry"] = retrieval_retry_info
+            except Exception as exc:  # noqa: BLE001
+                retrieval_retry_info["error"] = str(exc)
+                retrieval["retrieval_retry"] = retrieval_retry_info
+        else:
+            retrieval["retrieval_retry"] = retrieval_retry_info
+        # ────────────────────────────────────────────────────────────────
 
         if not relevance["passed"]:
             refusal_decision = RefusalPolicy.decision(
@@ -230,6 +612,8 @@ class RAGService:
         prompt = self._prompt_builder.build(
             question=normalized_question,
             context=context,
+            query_understanding=understood_query,
+            conversation_history=cleaned_history,
         )
         context_finished = perf_counter()
 
@@ -344,6 +728,72 @@ class RAGService:
                     evidence=evidence,
                 )
             )
+
+            has_supported_claims = any(
+                result.supported
+                for result in support_results
+            )
+            has_unsupported_claims = any(
+                not result.supported
+                for result in support_results
+            )
+            claims_pruned = False
+
+            if has_supported_claims and has_unsupported_claims:
+                pruned_answer = self._unsupported_claim_pruner.prune(
+                    extracted_claims,
+                    support_results,
+                )
+
+                if pruned_answer:
+                    generated_answer = pruned_answer
+                    claims_pruned = True
+                    claims_rebuilt = False
+                    claim_rebuild_error = None
+
+                    if self._supported_answer_rebuilder is not None:
+                        try:
+                            rebuilt_answer = (
+                                await self._supported_answer_rebuilder.rebuild(
+                                    question=normalized_question,
+                                    supported_answer=pruned_answer,
+                                    response_language=response_language,
+                                )
+                            )
+                            generated_answer = self._normalize_source_citations(
+                                rebuilt_answer
+                            )
+                            claims_rebuilt = True
+                        except Exception as exc:
+                            claim_rebuild_error = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
+                            generated_answer = pruned_answer
+
+                    used_sources = self._select_sources(
+                        generated_answer,
+                        context.sources,
+                    )
+                    evidence_items = self._evidence_builder.build(
+                        used_sources=used_sources,
+                        retrieval_results=results,
+                    )
+                    evidence = [
+                        asdict(item)
+                        for item in evidence_items
+                    ]
+
+                    extracted_claims = self._claim_extractor.extract(
+                        generated_answer,
+                        refusal_sentences=refusal_sentences,
+                    )
+                    support_results = (
+                        await self._claim_support_evaluator.evaluate(
+                            extracted_claims,
+                            evidence=evidence,
+                        )
+                    )
+
             decision = self._post_generation_safety_gate.evaluate(
                 support_results
             )
@@ -353,6 +803,13 @@ class RAGService:
                 for result in support_results
             ]
             claim_validation = asdict(decision)
+            claim_validation["claims_pruned"] = claims_pruned
+            claim_validation["claims_rebuilt"] = (
+                claims_rebuilt if claims_pruned else False
+            )
+            claim_validation["claim_rebuild_error"] = (
+                claim_rebuild_error if claims_pruned else None
+            )
         claim_validation_finished = perf_counter()
 
         citation_evaluation_started = perf_counter()
@@ -410,24 +867,24 @@ class RAGService:
             safety_flagged = True
             returned_sources = []
             returned_evidence = []
-        elif not citation_evaluation["passed"]:
-            answer = self._post_generation_refusal(response_language)
-            refused = True
-            grounded = False
-            refusal = {
-                "reason": "citation_accuracy_failed",
-                "stage": "post_generation",
-                "generation_skipped": False,
-            }
-            safety_flagged = True
-            returned_sources = []
-            returned_evidence = []
         elif not claim_validation["passed"]:
             answer = self._post_generation_refusal(response_language)
             refused = True
             grounded = False
             refusal = {
                 "reason": claim_validation["reason"],
+                "stage": "post_generation",
+                "generation_skipped": False,
+            }
+            safety_flagged = True
+            returned_sources = []
+            returned_evidence = []
+        elif not citation_evaluation["passed"]:
+            answer = self._post_generation_refusal(response_language)
+            refused = True
+            grounded = False
+            refusal = {
+                "reason": "citation_accuracy_failed",
                 "stage": "post_generation",
                 "generation_skipped": False,
             }
@@ -595,8 +1052,549 @@ class RAGService:
             "timings_ms": timings_ms,
         }
 
+    async def ask_ephemeral_document(
+        self,
+        *,
+        question: str,
+        candidates: list[dict[str, Any]],
+        conversation_history: list[dict[str, str]] | None = None,
+        temperature: float = 0.0,
+        max_output_tokens: int = 1200,
+        session: AsyncSession | None = None,
+        include_global_knowledge: bool = False,
+        retrieval_limit: int = 5,
+    ) -> dict[str, Any]:
+        """Run a temporary document alone or merge it with the global knowledge base."""
+        from src.services.EphemeralDocumentService import EphemeralDocumentService
+
+        total_started = perf_counter()
+        normalized_question = self._normalize_question(question)
+        cleaned_history = self._clean_conversation_history(conversation_history)
+        understood_query = await self._query_understanding.understand(
+            normalized_question,
+            conversation_history=cleaned_history,
+        )
+        response_language = LanguageDetector.detect(normalized_question).code
+        refusal_sentences = self._refusal_sentences()
+
+        if understood_query.intent == "social":
+            answer = (
+                understood_query.clarification_message
+                or self._social_fallback(response_language)
+            )
+            return self._social_output(
+                question=normalized_question,
+                answer=answer,
+                language=response_language,
+                query_understanding=understood_query.as_dict(),
+                total_ms=self._milliseconds(total_started, perf_counter()),
+            )
+
+        pre_reason = understood_query.safety_reason
+        if pre_reason is None and understood_query.intent == "out_of_scope":
+            pre_reason = "out_of_scope"
+        if pre_reason is not None or understood_query.ambiguous:
+            if understood_query.ambiguous:
+                answer = (
+                    understood_query.clarification_message
+                    or RefusalPolicy.decision(
+                        normalized_question,
+                        reason="insufficient_evidence",
+                    ).message
+                )
+                category = "insufficient_evidence"
+                requires_professional = False
+                urgent = False
+            else:
+                decision = RefusalPolicy.decision(
+                    normalized_question,
+                    reason=pre_reason,
+                )
+                answer = decision.message
+                category = decision.reason
+                requires_professional = decision.requires_professional
+                urgent = decision.urgent
+
+            finished = perf_counter()
+            retrieval = {
+                "results": [],
+                "pre_dedup_count": 0,
+                "post_dedup_count": 0,
+                "removed_duplicates": [],
+                "cross_language_keyword_used": False,
+                "effective_keyword_query": None,
+                "semantic_query": understood_query.semantic_query,
+                "rerank_query": understood_query.semantic_query,
+                "query_understanding": understood_query.as_dict(),
+                "ephemeral_document": True,
+            }
+            relevance = {
+                "passed": False,
+                "reason": "pre_retrieval_policy_decision",
+                "top_score": None,
+                "second_score": None,
+                "score_margin": None,
+                "threshold": 0.320982,
+                "qualified_chunk_count": 0,
+                "minimum_qualified_chunks": 1,
+            }
+            strength = {
+                "level": "insufficient",
+                "top_score": None,
+                "relevance_threshold": 0.320982,
+                "strong_threshold": 0.533,
+                "language_policy": "generation_not_run",
+                "answer_allowed": False,
+                "rationale": "Handled before retrieval by policy.",
+            }
+            return self._refusal_output(
+                question=normalized_question,
+                answer=answer,
+                language=response_language,
+                retrieval=retrieval,
+                relevance=relevance,
+                refusal_guidance={
+                    "category": category,
+                    "requires_professional": requires_professional,
+                    "urgent": urgent,
+                },
+                evidence_strength=strength,
+                refusal_reason=category,
+                refusal_stage="pre_generation",
+                generation_skipped=True,
+                safety_flagged=urgent,
+                citation_repair={
+                    "attempted": False,
+                    "repaired": False,
+                    "initial_passed": True,
+                    "final_passed": True,
+                    "reason": "generation_not_run",
+                },
+                citation_evaluation=self._empty_citation_evaluation("generation_not_run"),
+                claim_validation=self._empty_claim_validation("generation_not_run"),
+                claims=[],
+                timings_ms={
+                    "retrieval": 0.0,
+                    "context_building": 0.0,
+                    "generation": 0.0,
+                    "evidence_building": 0.0,
+                    "citation_repair": 0.0,
+                    "claim_validation": 0.0,
+                    "citation_evaluation": 0.0,
+                    "total": self._milliseconds(total_started, finished),
+                },
+            )
+
+        retrieval_started = perf_counter()
+        ranker = EphemeralDocumentService()
+        ranked_candidates = ranker.rank_chunks_for_query(
+            chunks=candidates,
+            query=understood_query.semantic_query,
+            limit=8,
+        )
+        retrieval_finished = perf_counter()
+
+        positive_candidates = [
+            item for item in ranked_candidates
+            if float(item.get("rerank_score") or 0.0) > 0.0
+        ]
+        uploaded_results = positive_candidates or ranked_candidates
+        for item in uploaded_results:
+            item["retrieval_scope"] = "uploaded_document"
+            item["ephemeral_document"] = True
+
+        global_retrieval: dict[str, Any] | None = None
+        global_results: list[dict[str, Any]] = []
+        if include_global_knowledge:
+            if session is None:
+                raise ValueError(
+                    "session is required when global knowledge is included"
+                )
+            global_retrieval = await self._retrieval_pipeline.search(
+                session=session,
+                query=understood_query.semantic_query,
+                limit=max(retrieval_limit, 5),
+                project_id=None,
+                asset_id=None,
+                use_deduplication=True,
+                use_reranking=True,
+                semantic_query=understood_query.semantic_query,
+                keyword_hints=understood_query.keyword_hints,
+            )
+            global_results = [dict(item) for item in global_retrieval["results"]]
+            for item in global_results:
+                item["retrieval_scope"] = "global_knowledge_base"
+                item["ephemeral_document"] = False
+
+        # Merge both evidence pools without storing the temporary document.
+        # Keep unique asset/chunk pairs and unique temporary chunk IDs.
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
+        for item in global_results + uploaded_results:
+            key = (
+                item.get("retrieval_scope"),
+                item.get("asset_id"),
+                item.get("chunk_id"),
+                str(item.get("text") or item.get("content") or "")[:160],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+
+        merged.sort(
+            key=lambda item: float(item.get("rerank_score") or 0.0),
+            reverse=True,
+        )
+        results = merged[: max(retrieval_limit, 5)]
+        retrieval = {
+            "results": results,
+            "pre_dedup_count": (
+                len(candidates)
+                + (global_retrieval.get("pre_dedup_count", 0) if global_retrieval else 0)
+            ),
+            "post_dedup_count": len(merged),
+            "removed_duplicates": [],
+            "cross_language_keyword_used": (
+                global_retrieval.get("cross_language_keyword_used", False)
+                if global_retrieval else False
+            ),
+            "effective_keyword_query": (
+                global_retrieval.get("effective_keyword_query")
+                if global_retrieval else None
+            ),
+            "semantic_query": understood_query.semantic_query,
+            "rerank_query": understood_query.semantic_query,
+            "query_understanding": understood_query.as_dict(),
+            "ephemeral_document": True,
+            "combined_search": include_global_knowledge,
+            "global_result_count": len(global_results),
+            "uploaded_document_result_count": len(uploaded_results),
+            "score_type": "mixed_global_rerank_and_uploaded_lexical",
+        }
+
+        relevance = self._relevance_gate.evaluate_as_dict(results)
+        evidence_strength = self._evidence_strength_classifier.classify_as_dict(
+            relevance.get("top_score")
+        )
+        if not results or not relevance["passed"]:
+            decision = RefusalPolicy.decision(
+                normalized_question,
+                low_relevance=True,
+            )
+            finished = perf_counter()
+            return self._refusal_output(
+                question=normalized_question,
+                answer=decision.message,
+                language=response_language,
+                retrieval=retrieval,
+                relevance=relevance,
+                refusal_guidance={
+                    "category": decision.reason,
+                    "requires_professional": decision.requires_professional,
+                    "urgent": decision.urgent,
+                },
+                evidence_strength=evidence_strength,
+                refusal_reason=decision.reason,
+                refusal_stage="pre_generation",
+                generation_skipped=True,
+                safety_flagged=False,
+                citation_repair={
+                    "attempted": False,
+                    "repaired": False,
+                    "initial_passed": True,
+                    "final_passed": True,
+                    "reason": "generation_not_run",
+                },
+                citation_evaluation=self._empty_citation_evaluation("generation_not_run"),
+                claim_validation=self._empty_claim_validation("generation_not_run"),
+                claims=[],
+                timings_ms={
+                    "retrieval": self._milliseconds(retrieval_started, retrieval_finished),
+                    "context_building": 0.0,
+                    "generation": 0.0,
+                    "evidence_building": 0.0,
+                    "citation_repair": 0.0,
+                    "claim_validation": 0.0,
+                    "citation_evaluation": 0.0,
+                    "total": self._milliseconds(total_started, finished),
+                },
+            )
+
+        context_started = perf_counter()
+        context = self._context_builder.build(results)
+        prompt = self._prompt_builder.build(
+            question=normalized_question,
+            context=context,
+            query_understanding=understood_query,
+            conversation_history=cleaned_history,
+        )
+        context_finished = perf_counter()
+
+        generation_started = perf_counter()
+        uncertainty_instruction = self._evidence_strength_classifier.prompt_instruction(
+            evidence_strength["level"],
+            response_language,
+        )
+        generation = await self._generation_provider.generate(
+            system_prompt=(
+                prompt.system_prompt
+                + "\n\nEVIDENCE STRENGTH LANGUAGE POLICY:\n"
+                + uncertainty_instruction
+            ),
+            user_prompt=prompt.user_prompt,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        )
+        generation_finished = perf_counter()
+
+        raw_answer = self._normalize_source_citations(generation.text.strip())
+        refusal_category, cleaned_answer = RefusalPolicy.parse_marked_answer(raw_answer)
+        generation_refused = refusal_category is not None
+        if generation_refused:
+            raw_answer = cleaned_answer
+
+        citation_repair_started = perf_counter()
+        if generation_refused:
+            generated_answer = raw_answer
+            citation_repair = {
+                "attempted": False,
+                "repaired": False,
+                "initial_passed": True,
+                "final_passed": True,
+                "reason": "generation_refusal",
+            }
+        else:
+            repaired = await self._citation_repair_service.repair_if_needed(
+                raw_answer,
+                sources=context.sources,
+                refusal_sentences=refusal_sentences,
+                response_language=response_language,
+            )
+            generated_answer = self._normalize_source_citations(repaired.answer)
+            citation_repair = {
+                "attempted": repaired.attempted,
+                "repaired": repaired.repaired,
+                "initial_passed": repaired.initial_decision.passed,
+                "final_passed": repaired.final_decision.passed,
+                "reason": repaired.final_decision.reason,
+            }
+        citation_repair_finished = perf_counter()
+        citation_compliance_failed = (
+            not generation_refused and not citation_repair["final_passed"]
+        )
+
+        used_sources = (
+            [] if generation_refused or citation_compliance_failed
+            else self._select_sources(generated_answer, context.sources)
+        )
+        evidence_started = perf_counter()
+        evidence_items = (
+            [] if generation_refused or citation_compliance_failed
+            else self._evidence_builder.build(
+                used_sources=used_sources,
+                retrieval_results=results,
+            )
+        )
+        evidence = [asdict(item) for item in evidence_items]
+        evidence_finished = perf_counter()
+
+        claim_validation_started = perf_counter()
+        extracted_claims = []
+        support_results = []
+        claims_pruned = False
+        claims_rebuilt = False
+        claim_rebuild_error = None
+        if generation_refused or citation_compliance_failed:
+            claims = []
+            claim_results = []
+            claim_validation = self._empty_claim_validation(
+                "generation_refusal" if generation_refused else "citation_repair_failed"
+            )
+        else:
+            extracted_claims = self._claim_extractor.extract(
+                generated_answer,
+                refusal_sentences=refusal_sentences,
+            )
+            support_results = await self._claim_support_evaluator.evaluate(
+                extracted_claims,
+                evidence=evidence,
+            )
+            has_supported = any(item.supported for item in support_results)
+            has_unsupported = any(not item.supported for item in support_results)
+            if has_supported and has_unsupported:
+                pruned = self._unsupported_claim_pruner.prune(
+                    extracted_claims,
+                    support_results,
+                )
+                if pruned:
+                    generated_answer = pruned
+                    claims_pruned = True
+                    if self._supported_answer_rebuilder is not None:
+                        try:
+                            generated_answer = self._normalize_source_citations(
+                                await self._supported_answer_rebuilder.rebuild(
+                                    question=normalized_question,
+                                    supported_answer=pruned,
+                                    response_language=response_language,
+                                )
+                            )
+                            claims_rebuilt = True
+                        except Exception as exc:
+                            claim_rebuild_error = f"{type(exc).__name__}: {exc}"
+                            generated_answer = pruned
+                    used_sources = self._select_sources(generated_answer, context.sources)
+                    evidence_items = self._evidence_builder.build(
+                        used_sources=used_sources,
+                        retrieval_results=results,
+                    )
+                    evidence = [asdict(item) for item in evidence_items]
+                    extracted_claims = self._claim_extractor.extract(
+                        generated_answer,
+                        refusal_sentences=refusal_sentences,
+                    )
+                    support_results = await self._claim_support_evaluator.evaluate(
+                        extracted_claims,
+                        evidence=evidence,
+                    )
+
+            validation_decision = self._post_generation_safety_gate.evaluate(
+                support_results
+            )
+            claims = [asdict(item) for item in extracted_claims]
+            claim_results = [asdict(item) for item in support_results]
+            claim_validation = asdict(validation_decision)
+            claim_validation["claims_pruned"] = claims_pruned
+            claim_validation["claims_rebuilt"] = claims_rebuilt
+            claim_validation["claim_rebuild_error"] = claim_rebuild_error
+        claim_validation_finished = perf_counter()
+
+        citation_evaluation_started = perf_counter()
+        if generation_refused:
+            citation_evaluation = self._empty_citation_evaluation("generation_refusal")
+        elif citation_compliance_failed:
+            citation_evaluation = self._empty_citation_evaluation("citation_repair_failed")
+        else:
+            citation_evaluation = asdict(
+                self._citation_accuracy_evaluator.evaluate(
+                    claims=extracted_claims,
+                    claim_results=support_results,
+                    sources=used_sources,
+                    evidence=evidence,
+                )
+            )
+        citation_evaluation_finished = perf_counter()
+
+        refusal_guidance = None
+        if generation_refused:
+            answer = generated_answer
+            refused = True
+            grounded = False
+            refusal = {
+                "reason": refusal_category or "generation_refusal",
+                "stage": "generation",
+                "generation_skipped": False,
+            }
+            refusal_guidance = {
+                "category": refusal_category or "generation_refusal",
+                "requires_professional": refusal_category in {
+                    "professional_care", "personalized_treatment", "urgent_help"
+                },
+                "urgent": refusal_category == "urgent_help",
+            }
+            safety_flagged = False
+            returned_sources = []
+            returned_evidence = []
+        elif citation_compliance_failed:
+            answer = self._post_generation_refusal(response_language)
+            refused = True
+            grounded = False
+            refusal = {
+                "reason": "citation_repair_failed",
+                "stage": "post_generation",
+                "generation_skipped": False,
+            }
+            safety_flagged = True
+            returned_sources = []
+            returned_evidence = []
+        elif not claim_validation["passed"]:
+            answer = self._post_generation_refusal(response_language)
+            refused = True
+            grounded = False
+            refusal = {
+                "reason": claim_validation["reason"],
+                "stage": "post_generation",
+                "generation_skipped": False,
+            }
+            safety_flagged = True
+            returned_sources = []
+            returned_evidence = []
+        elif not citation_evaluation["passed"]:
+            answer = self._post_generation_refusal(response_language)
+            refused = True
+            grounded = False
+            refusal = {
+                "reason": "citation_accuracy_failed",
+                "stage": "post_generation",
+                "generation_skipped": False,
+            }
+            safety_flagged = True
+            returned_sources = []
+            returned_evidence = []
+        else:
+            answer = generated_answer
+            refused = False
+            grounded = bool(evidence)
+            refusal = None
+            safety_flagged = False
+            returned_sources = used_sources
+            returned_evidence = evidence
+
+        finished = perf_counter()
+        return {
+            "question": normalized_question,
+            "answer": answer,
+            "recommendation": answer,
+            "answer_language": response_language,
+            "grounded": grounded,
+            "refused": refused,
+            "safety_flagged": safety_flagged,
+            "refusal": refusal,
+            "refusal_guidance": refusal_guidance,
+            "relevance": relevance,
+            "evidence_strength": evidence_strength,
+            "provider": generation.provider,
+            "model": generation.model,
+            "request_id": generation.request_id,
+            "sources": returned_sources,
+            "evidence": returned_evidence,
+            "claims": claims,
+            "claim_results": claim_results,
+            "citation_repair": citation_repair,
+            "citation_evaluation": citation_evaluation,
+            "claim_validation": claim_validation,
+            "retrieval": retrieval,
+            "context_characters": context.total_characters,
+            "generation_config": {
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens,
+            },
+            "timings_ms": {
+                "retrieval": self._milliseconds(retrieval_started, retrieval_finished),
+                "context_building": self._milliseconds(context_started, context_finished),
+                "generation": self._milliseconds(generation_started, generation_finished),
+                "evidence_building": self._milliseconds(evidence_started, evidence_finished),
+                "citation_repair": self._milliseconds(citation_repair_started, citation_repair_finished),
+                "claim_validation": self._milliseconds(claim_validation_started, claim_validation_finished),
+                "citation_evaluation": self._milliseconds(citation_evaluation_started, citation_evaluation_finished),
+                "total": self._milliseconds(total_started, finished),
+            },
+        }
+
     async def close(self) -> None:
         await self._retrieval_pipeline.close()
         await self._generation_provider.close()
         if self._claim_judge_provider is not self._generation_provider:
             await self._claim_judge_provider.close()
+
+    

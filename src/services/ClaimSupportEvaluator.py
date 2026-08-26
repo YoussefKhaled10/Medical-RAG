@@ -64,7 +64,7 @@ class ClaimSupportEvaluator:
         evidence: list[dict[str, Any]],
     ) -> dict[str, dict[str, Any]]:
         return {
-            str(item["source_id"]): item
+            str(item["source_id"]).upper(): item
             for item in evidence
             if item.get("source_id")
         }
@@ -78,15 +78,22 @@ class ClaimSupportEvaluator:
         evaluated_ids: list[str] = []
 
         for source_id in claim.cited_source_ids:
-            item = evidence_by_id.get(source_id)
+            normalized_source_id = str(source_id).upper()
+            item = evidence_by_id.get(normalized_source_id)
             if item is None:
                 continue
             excerpt = str(item.get("excerpt") or "").strip()
             if not excerpt:
                 continue
 
-            evaluated_ids.append(source_id)
-            blocks.append(f"[{source_id}]\n{excerpt}")
+            evaluated_ids.append(normalized_source_id)
+            blocks.append(
+                f"[{normalized_source_id}]\n"
+                f"Document: {item.get('document_name') or ''}\n"
+                f"Section: {item.get('section_title') or ''}\n"
+                f"Page: {item.get('page_number') or ''}\n"
+                f"Exact evidence text:\n{excerpt}"
+            )
 
         return "\n\n".join(blocks), tuple(evaluated_ids)
 
@@ -181,21 +188,25 @@ class ClaimSupportEvaluator:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """You are an independent evidence-entailment judge.
+        return """You are an independent cross-language evidence-entailment judge.
 Evaluate one medical claim against only the supplied cited evidence.
 Do not use outside knowledge.
-A claim is supported only when every factual detail in the claim is directly stated or clearly entailed by the evidence.
-Names, dosages, age groups, durations, frequencies, success rates, comparisons, and recommendations must be explicitly supported.
-Related topic overlap is not enough.
-Return exactly one JSON object and nothing else.
-Use this exact schema:
+
+The claim and evidence may be written in different languages. A faithful translation or conservative paraphrase can be supported even when the wording differs. Judge meaning, not exact word overlap.
+
+A claim is supported only when every factual detail is directly stated or clearly entailed by the cited evidence. For a list claim, every listed item must be supported. If only some items are supported, mark the whole claim unsupported and identify the unsupported items.
+
+Do not require the evidence to use the same grammatical form as the claim. Accept equivalent meanings such as 'can lead to', 'is linked with', or 'increases risk' only when the evidence clearly expresses the same relationship. Do not accept stronger causality, broader populations, extra organs, extra outcomes, extra statistics, or extra recommendations.
+
+Return exactly one JSON object and nothing else using this schema:
 {"supported": true, "support_score": 0.95, "reason": "brief explanation"}
+
 Requirements:
 - supported must be true or false.
 - support_score must be a number from 0 to 1.
 - reason must be a short non-empty string.
+- Use support_score of at least 0.80 only when every detail is supported.
 - Do not use markdown, code fences, headings, or commentary."""
-
     @staticmethod
     def _user_prompt(claim: ExtractedClaim, evidence_text: str) -> str:
         return (

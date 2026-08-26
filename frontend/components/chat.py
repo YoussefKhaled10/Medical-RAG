@@ -92,6 +92,11 @@ def _details(message: dict[str, Any]) -> None:
 
 
 def render_chat_interface(messages: list[dict[str, Any]]) -> None:
+    # Stable target used by the fixed "back to first message" control.
+    st.markdown(
+        '<div id="rp-chat-top" class="rp-chat-top-anchor" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
     for message in messages:
         content = str(message.get("content", ""))
         language = message.get("language") or ("ar" if ARABIC.search(content) else "en")
@@ -105,6 +110,14 @@ def render_chat_interface(messages: list[dict[str, Any]]) -> None:
                 _metadata(message)
                 _details(message)
 
+
+
+def render_chat_bottom_anchor() -> None:
+    st.markdown(
+        '<div id="rp-chat-bottom" class="rp-chat-bottom-anchor" '
+        'aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
 
 def add_message(messages_state: list[dict[str, Any]], role: str, content: str, response_payload: dict[str, Any] | None = None) -> None:
     message: dict[str, Any] = {"role": role, "content": content}

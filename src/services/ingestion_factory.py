@@ -1,9 +1,10 @@
 from src.chunkers import SemanticChunker
 from src.helpers.config import settings
-from src.parsers import PyMuPDFParser, SectionBuilder
-from src.services import IngestionService
+from src.parsers import PyMuPDFParser, SectionBuilder, TextParser
+from src.services.IngestionService import IngestionService
 from src.stores.llm.LLMFactory import LLMFactory
 from src.stores.vectordb.VectorDBFactory import VectorDBFactory
+
 
 
 def create_ingestion_service() -> IngestionService:
@@ -27,6 +28,9 @@ def create_ingestion_service() -> IngestionService:
         title_size_ratio=1.25,
         repeated_text_ratio=0.30,
     )
+    text_parser = TextParser(
+        lines_per_page=50,
+    )
     chunker = SemanticChunker(
         embedding_provider=embedding_provider,
         similarity_threshold=0.50,
@@ -40,4 +44,6 @@ def create_ingestion_service() -> IngestionService:
         semantic_chunker=chunker,
         embedding_provider=embedding_provider,
         vector_db=vector_db,
+        text_parser=text_parser,
     )
+

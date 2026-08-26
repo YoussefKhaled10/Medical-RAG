@@ -19,7 +19,8 @@ from src.services.ingestion_factory import create_ingestion_service
 
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "uploads"
-MAX_PDF_SIZE = 50 * 1024 * 1024
+MAX_FILE_SIZE = 50 * 1024 * 1024
+MAX_PDF_SIZE = MAX_FILE_SIZE
 
 
 ingestion_router = APIRouter(
@@ -54,24 +55,30 @@ class AssetChunksResponse(BaseModel):
     chunks: list[ChunkResponse]
 
 
-def _safe_pdf_name(original_name: str | None) -> str:
+def _safe_file_name(original_name: str | None) -> str:
     if not original_name:
         return "document.pdf"
 
     file_name = Path(original_name).name
-    if Path(file_name).suffix.lower() != ".pdf":
+    suffix = Path(file_name).suffix.lower()
+    if suffix not in {".pdf", ".txt"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are supported.",
+            detail="Only PDF (.pdf) and Text (.txt) files are supported.",
         )
     return file_name
 
 
-async def _save_pdf(
+# Alias for backward compatibility
+_safe_pdf_name = _safe_file_name
+
+
+async def _save_file(
     upload_file: UploadFile,
     project_id: int,
-) -> tuple[Path, int, str]:
-    file_name = _safe_pdf_name(upload_file.filename)
+) -> tuple[Path, int, str, str]:
+    file_name = _safe_file_name(upload_file.filename)
+    suffix = Path(file_name).suffix.lower()
     upload_directory = UPLOAD_ROOT / str(project_id)
     upload_directory.mkdir(parents=True, exist_ok=True)
 
@@ -83,10 +90,10 @@ async def _save_pdf(
         with stored_path.open("wb") as destination:
             while chunk := await upload_file.read(1024 * 1024):
                 file_size += len(chunk)
-                if file_size > MAX_PDF_SIZE:
+                if file_size > MAX_FILE_SIZE:
                     raise HTTPException(
                         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail="PDF exceeds the 50 MB upload limit.",
+                        detail="File exceeds the 50 MB upload limit.",
                     )
                 digest.update(chunk)
                 destination.write(chunk)
@@ -100,27 +107,50 @@ async def _save_pdf(
         stored_path.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded PDF is empty.",
+            detail="The uploaded file is empty.",
         )
 
-    with stored_path.open("rb") as file:
-        if file.read(5) != b"%PDF-":
+    file_type = "application/pdf" if suffix == ".pdf" else "text/plain"
+    if suffix == ".pdf":
+        with stored_path.open("rb") as file:
+            if file.read(5) != b"%PDF-":
+                stored_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The uploaded file is not a valid PDF.",
+                )
+    elif suffix == ".txt":
+        try:
+            with stored_path.open("rb") as file:
+                sample = file.read(4096)
+                if b"\x00" in sample:
+                    stored_path.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="The uploaded file appears to be a binary file, not valid text.",
+                    )
+        except HTTPException:
+            raise
+        except Exception as exc:
             stored_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The uploaded file is not a valid PDF.",
+                detail=f"Failed to validate text file: {exc}",
             )
 
-    return stored_path, file_size, digest.hexdigest()
+    return stored_path, file_size, digest.hexdigest(), file_type
+
+
+_save_pdf = _save_file
 
 
 @ingestion_router.post(
     "/upload-index",
     response_model=IngestionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload and index a PDF",
+    summary="Upload and index a document (PDF or TXT)",
 )
-async def upload_and_index_pdf(
+async def upload_and_index_document(
     project_id: int = Form(..., gt=0),
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db_session),
@@ -140,7 +170,7 @@ async def upload_and_index_pdf(
     service = None
 
     try:
-        saved_path, file_size, checksum = await _save_pdf(
+        saved_path, file_size, checksum, file_type = await _save_file(
             upload_file=file,
             project_id=project_id,
         )
@@ -151,24 +181,46 @@ async def upload_and_index_pdf(
             file_checksum=checksum,
         )
         if existing_asset is not None:
-            saved_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "message": "This PDF already exists in the project.",
-                    "asset_id": existing_asset.id,
-                    "processing_status": existing_asset.processing_status,
-                },
-            )
+            if existing_asset.processing_status == "COMPLETED":
+                saved_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "This document already exists in the project.",
+                        "asset_id": existing_asset.id,
+                        "processing_status": existing_asset.processing_status,
+                    },
+                )
+            else:
+                # If previously failed or incomplete, clean up old index/records and allow re-upload
+                cleanup_service = create_ingestion_service()
+                try:
+                    await cleanup_service.remove_asset_index(
+                        session=session,
+                        asset_id=existing_asset.id,
+                    )
+                except Exception:
+                    pass
+                finally:
+                    await cleanup_service.close()
 
-        original_name = _safe_pdf_name(file.filename)
+                if existing_asset.file_path and existing_asset.file_path != str(saved_path):
+                    Path(existing_asset.file_path).unlink(missing_ok=True)
+                
+                await AssetModel.delete(
+                    session=session,
+                    asset_id=existing_asset.id,
+                    commit=True,
+                )
+
+        original_name = _safe_file_name(file.filename)
         asset = await AssetModel.create(
             session=session,
             project_id=project_id,
             document_name=Path(original_name).stem,
             file_name=original_name,
             file_path=str(saved_path),
-            file_type="application/pdf",
+            file_type=file_type,
             file_size=file_size,
             file_checksum=checksum,
         )
@@ -203,7 +255,7 @@ async def upload_and_index_pdf(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "message": "PDF ingestion failed.",
+                "message": "Document ingestion failed.",
                 "asset_id": asset_id,
                 "error": str(exc),
             },
@@ -211,6 +263,10 @@ async def upload_and_index_pdf(
     finally:
         if service is not None:
             await service.close()
+
+
+upload_and_index_pdf = upload_and_index_document
+
 
 
 @ingestion_router.get(

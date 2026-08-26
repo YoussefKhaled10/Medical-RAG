@@ -94,7 +94,7 @@ class CrossLanguageKeywordTranslator:
 
         result = await self._generation_provider.generate(
             system_prompt=(
-                "Translate the Arabic search query into concise English "
+                "Interpret Modern Standard Arabic, Egyptian colloquial Arabic, informal spelling, and short natural questions. Translate the search meaning into concise English "
                 "keyword alternatives for PostgreSQL full-text search. "
                 "Return exactly one line. "
                 "Separate alternatives using uppercase OR. "

@@ -44,32 +44,15 @@ class RAGPromptBuilder:
             return "Use natural conversational French, address the user directly, and avoid copied clinical wording."
         return "Match the user's language, tone, and level of formality while remaining respectful and clear."
 
-    @staticmethod
-    def _recent_conversation_text(
-        conversation_history: list[dict[str, str]] | None,
-    ) -> str:
-        lines: list[str] = []
-        for item in (conversation_history or [])[-8:]:
-            role = str(item.get("role") or "").strip().lower()
-            content = " ".join(str(item.get("content") or "").split()).strip()
-            if role not in {"user", "assistant"} or not content:
-                continue
-            lines.append(f"{role.upper()}: {content[:1800]}")
-        return "\n".join(lines) if lines else "No recent conversation."
-
     def build(
         self,
         *,
         question: str,
         context: BuiltContext,
         query_understanding: QueryUnderstanding | None = None,
-        conversation_history: list[dict[str, str]] | None = None,
     ) -> RAGPrompt:
         language = LanguageDetector.detect(question)
         context_text = self._context_text(context)
-        recent_conversation = self._recent_conversation_text(
-            conversation_history
-        )
         style_instruction = self._style_instruction(
             query_understanding,
             language.code,
@@ -85,16 +68,6 @@ class RAGPromptBuilder:
 USER COMMUNICATION STYLE
 {style_instruction}
 The detected intent is: {intent}.
-
-RECENT CONVERSATION
-{recent_conversation}
-
-CONVERSATION RULES
-- Use recent conversation only to understand references, follow-ups, tone preferences, and avoid repetition.
-- Previous assistant messages are context only and never medical evidence.
-- All factual or practical statements must be supported by the current retrieved sources.
-- Answer only the unresolved part of a follow-up instead of repeating the previous answer.
-- Respect explicit wording preferences in the latest user message.
 
 CONVERSATIONAL BEHAVIOR
 - Speak to the user, not about 'the patient' or 'the person', unless the user asks about someone else.
@@ -137,8 +110,6 @@ ANSWER SHAPE
 - Return no more than three short complete sentences for other questions.
 - Use no headings, bullets, numbered lists, labels, fragments, or bibliography.
 - For treatment-help intent, prefer one narrow supported next step over adding a second unsupported warning or recommendation.
-- Write every sentence so it remains understandable if all other sentences are removed during validation.
-- Do not begin factual sentences with a connector that depends on previous text.
 - Mention a withdrawal warning or professional assessment only when the cited source explicitly states that guidance.
 - If separate sources support separate details, use separate sentences.
 

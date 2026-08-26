@@ -12,6 +12,9 @@ evaluation
 Evaluation_JSONs
 Eval
 docs
+test_files/
+uploads/
+med_rag_broken/
 
 
 demo_cases.json

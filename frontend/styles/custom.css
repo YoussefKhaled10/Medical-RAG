@@ -522,3 +522,393 @@ header[data-testid="stHeader"] [data-testid="stStatusWidget"] {
   opacity: 1 !important;
 }
 
+
+/* =========================================================
+   FINAL CHAT INPUT FIX
+   ========================================================= */
+
+[data-testid="stBottom"] {
+    background: rgba(239, 246, 253, 0.98) !important;
+    border-top: 1px solid rgba(77, 139, 184, 0.14) !important;
+    box-shadow: 0 -12px 32px rgba(12, 52, 83, 0.06) !important;
+}
+
+[data-testid="stBottom"] > div {
+    background: transparent !important;
+}
+
+/* Chat input container */
+[data-testid="stChatInput"] {
+    background: #ffffff !important;
+    border: 1px solid #c8dceb !important;
+    border-radius: 18px !important;
+    box-shadow: 0 10px 28px rgba(19, 67, 103, 0.10) !important;
+    overflow: hidden !important;
+}
+
+/* Inner areas */
+[data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] form,
+[data-testid="stChatInput"] [data-baseweb="textarea"],
+[data-testid="stChatInput"] [data-baseweb="base-input"] {
+    background: #ffffff !important;
+}
+
+/* Actual text area */
+[data-testid="stChatInput"] textarea {
+    color: #123b5d !important;
+    -webkit-text-fill-color: #123b5d !important;
+    background: #ffffff !important;
+    caret-color: #17a9a5 !important;
+    opacity: 1 !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+}
+
+/* Placeholder */
+[data-testid="stChatInput"] textarea::placeholder {
+    color: #718ca1 !important;
+    -webkit-text-fill-color: #718ca1 !important;
+    opacity: 1 !important;
+}
+
+/* Send button */
+[data-testid="stChatInput"] button {
+    color: #ffffff !important;
+    background: linear-gradient(
+        135deg,
+        #1688d5,
+        #17bbae
+    ) !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stChatInput"] button:hover {
+    background: linear-gradient(
+        135deg,
+        #1b9be9,
+        #1bd0bd
+    ) !important;
+    transform: translateY(-1px);
+}
+
+[data-testid="stChatInput"] button:disabled {
+    color: #7f98aa !important;
+    background: #e3edf4 !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stChatInput"] button svg {
+    color: currentColor !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+}
+
+/* Reduce the excessive bottom black area */
+[data-testid="stBottomBlockContainer"] {
+    background: transparent !important;
+    padding-top: 14px !important;
+    padding-bottom: 18px !important;
+}
+
+/* Keep page content visible above the chat input */
+[data-testid="stMainBlockContainer"] {
+    padding-bottom: 145px !important;
+}
+
+/* =========================================================
+   RecoveryPath AI - Scope selector contrast fix
+   Add this block at the VERY END of frontend/styles/custom.css
+   ========================================================= */
+
+/* Scope selector wrapper and its text */
+[data-testid="stRadio"] {
+    color: #123b5d !important;
+}
+
+[data-testid="stRadio"] > label,
+[data-testid="stRadio"] > label p,
+[data-testid="stRadio"] [data-testid="stWidgetLabel"],
+[data-testid="stRadio"] [data-testid="stWidgetLabel"] p {
+    color: #274f6d !important;
+    -webkit-text-fill-color: #274f6d !important;
+    opacity: 1 !important;
+    font-weight: 700 !important;
+}
+
+/* Radio options container */
+[data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 12px 18px !important;
+    padding: 10px 12px !important;
+    border: 1px solid rgba(41, 102, 143, 0.14) !important;
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.72) !important;
+    box-shadow: 0 8px 22px rgba(20, 64, 96, 0.06) !important;
+}
+
+/* Every option label */
+[data-testid="stRadio"] div[role="radiogroup"] label {
+    min-height: 40px !important;
+    padding: 8px 12px !important;
+    margin: 0 !important;
+    border: 1px solid #c9dce8 !important;
+    border-radius: 12px !important;
+    background: #f7fbfe !important;
+    cursor: pointer !important;
+    transition: background-color 160ms ease,
+                border-color 160ms ease,
+                box-shadow 160ms ease,
+                transform 160ms ease !important;
+}
+
+[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+    background: #eef8fb !important;
+    border-color: #74c9cf !important;
+    box-shadow: 0 6px 15px rgba(22, 143, 139, 0.10) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Option text, including Arabic and emoji */
+[data-testid="stRadio"] div[role="radiogroup"] label p,
+[data-testid="stRadio"] div[role="radiogroup"] label span,
+[data-testid="stRadio"] div[role="radiogroup"] label div {
+    color: #173f5d !important;
+    -webkit-text-fill-color: #173f5d !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}
+
+[data-testid="stRadio"] div[role="radiogroup"] label p {
+    font-weight: 650 !important;
+    line-height: 1.45 !important;
+}
+
+/* Radio circle */
+[data-testid="stRadio"] div[role="radiogroup"] label [data-baseweb="radio"] > div:first-child {
+    border-color: #5e8aa6 !important;
+    background: #ffffff !important;
+}
+
+/* Selected option card */
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+    background: #e3f7f5 !important;
+    border-color: #16a6a1 !important;
+    box-shadow: 0 7px 18px rgba(22, 166, 161, 0.15) !important;
+}
+
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span,
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) div {
+    color: #0d6665 !important;
+    -webkit-text-fill-color: #0d6665 !important;
+    font-weight: 750 !important;
+}
+
+/* Selected radio dot */
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked)
+[data-baseweb="radio"] > div:first-child {
+    border-color: #16a6a1 !important;
+}
+
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked)
+[data-baseweb="radio"] > div:first-child > div {
+    background: #16a6a1 !important;
+}
+
+/* Uploaded-document information card contrast */
+.rp-uploaded-file-card,
+[data-testid="stSidebar"] .rp-uploaded-file-card {
+    color: #eaf7ff !important;
+}
+
+.rp-uploaded-file-card strong,
+.rp-uploaded-file-card b {
+    color: #24d0b5 !important;
+    -webkit-text-fill-color: #24d0b5 !important;
+}
+
+.rp-uploaded-file-card p,
+.rp-uploaded-file-card small,
+.rp-uploaded-file-card span {
+    color: #b8cede !important;
+    -webkit-text-fill-color: #b8cede !important;
+    opacity: 1 !important;
+}
+
+/* Safe fallback for older browsers without :has() */
+@supports not selector(label:has(input:checked)) {
+    [data-testid="stRadio"] div[role="radiogroup"] label {
+        background: #f4fbfd !important;
+        border-color: #88cdd0 !important;
+    }
+}
+
+/* =========================================================
+   V11 FINAL CLEAN: no navigation buttons, assistant messages only
+   ========================================================= */
+
+/* Remove both chat navigation buttons completely. */
+.rp-chat-top-button,
+.rp-chat-bottom-button,
+a.rp-chat-top-button,
+a.rp-chat-bottom-button {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Hide the original slide elements. The visible content is generated below,
+   guaranteeing that only one title and one sentence can appear at a time. */
+.rp-message-stage .rp-assistant-slide,
+.rp-assistant-slide,
+.rp-slide-1,
+.rp-slide-2,
+.rp-slide-3,
+.rp-slide-4 {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    animation: none !important;
+}
+
+.rp-floating-message {
+    width: min(350px, calc(100vw - 48px)) !important;
+    min-height: 118px !important;
+    padding: 18px 46px 22px 20px !important;
+    overflow: visible !important;
+}
+
+.rp-message-stage {
+    position: relative !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: 72px !important;
+    overflow: hidden !important;
+}
+
+/* One animated title. */
+.rp-message-stage::before {
+    content: "Hello! I'm RecoveryPath AI";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 5px;
+    display: block;
+    color: #f5ffff;
+    -webkit-text-fill-color: #f5ffff;
+    font-family: "DM Sans", "Noto Sans Arabic", sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.35;
+    opacity: 1;
+    animation: rp-clean-title-cycle 20s steps(1, end) infinite,
+               rp-clean-text-pulse 5s ease-in-out infinite;
+}
+
+/* One animated supporting sentence. */
+.rp-message-stage::after {
+    content: "Ask me anything about alcohol recovery.";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 38px;
+    display: block;
+    color: #bce0e4;
+    -webkit-text-fill-color: #bce0e4;
+    font-family: "DM Sans", "Noto Sans Arabic", sans-serif;
+    font-size: .78rem;
+    font-weight: 500;
+    line-height: 1.48;
+    opacity: 1;
+    animation: rp-clean-body-cycle 20s steps(1, end) infinite,
+               rp-clean-text-pulse 5s ease-in-out infinite;
+}
+
+/* Each message remains visible for five seconds. */
+@keyframes rp-clean-title-cycle {
+    0%, 24.99% { content: "Hello! I'm RecoveryPath AI"; }
+    25%, 49.99% { content: "I'm ready to help"; }
+    50%, 74.99% { content: "Evidence comes first"; }
+    75%, 100% { content: "Ask naturally"; }
+}
+
+@keyframes rp-clean-body-cycle {
+    0%, 24.99% { content: "Ask me anything about alcohol recovery."; }
+    25%, 49.99% { content: "I search the available guidance before answering."; }
+    50%, 74.99% { content: "I verify supporting information and respond safely."; }
+    75%, 100% { content: "I'll respond in the same language as your question."; }
+}
+
+/* Gentle fade and movement at the start and end of every message. */
+@keyframes rp-clean-text-pulse {
+    0% {
+        opacity: 0;
+        transform: translateY(7px);
+        filter: blur(1px);
+    }
+    8%, 84% {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+    96%, 100% {
+        opacity: 0;
+        transform: translateY(-5px);
+        filter: blur(1px);
+    }
+}
+
+/* Clean four-part progress indicator. */
+.rp-slide-progress {
+    position: absolute !important;
+    left: 20px !important;
+    right: 46px !important;
+    bottom: 10px !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 6px !important;
+}
+
+.rp-slide-progress i {
+    display: block !important;
+    width: 100% !important;
+    height: 3px !important;
+    border-radius: 999px !important;
+    background: rgba(188, 224, 228, .22) !important;
+}
+
+/* Keep the close and reopen behavior. */
+.rp-message-toggle:checked + .rp-floating-message {
+    display: none !important;
+}
+
+.rp-floating-bot {
+    display: block !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+}
+
+@media (max-width: 700px) {
+    .rp-floating-message {
+        width: min(292px, calc(100vw - 28px)) !important;
+        min-height: 116px !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rp-message-stage::before {
+        content: "Hello! I'm RecoveryPath AI" !important;
+        animation: none !important;
+    }
+    .rp-message-stage::after {
+        content: "Ask me anything about alcohol recovery." !important;
+        animation: none !important;
+    }
+}
+

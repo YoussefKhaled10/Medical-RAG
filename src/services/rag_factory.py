@@ -10,7 +10,10 @@ from src.services.EvidenceStrengthClassifier import EvidenceStrengthClassifier
 from src.services.PostGenerationSafetyGate import PostGenerationSafetyGate
 from src.services.RAGPromptBuilder import RAGPromptBuilder
 from src.services.RAGService import RAGService
+from src.services.IntentUnderstandingService import IntentUnderstandingService
 from src.services.RelevanceGate import RelevanceGate
+from src.services.RetrievalRetryService import RetrievalRetryService
+from src.services.SupportedAnswerRebuilder import SupportedAnswerRebuilder
 from src.services.retrieval_pipeline_factory import (
     create_retrieval_pipeline_service,
 )
@@ -197,4 +200,28 @@ def create_rag_service(
         ),
         claim_judge_provider=claim_judge_provider,
         evidence_builder=EvidenceBuilder(),
+        query_understanding_service=IntentUnderstandingService(
+            claim_judge_provider,
+            max_output_tokens=getattr(
+                settings,
+                "INTENT_MODEL_MAX_OUTPUT_TOKENS",
+                450,
+            ),
+        ),
+        retrieval_retry_service=RetrievalRetryService(
+            claim_judge_provider,
+            max_output_tokens=getattr(
+                settings,
+                "RETRIEVAL_RETRY_MAX_OUTPUT_TOKENS",
+                350,
+            ),
+        ),
+        supported_answer_rebuilder=SupportedAnswerRebuilder(
+            claim_judge_provider,
+            max_output_tokens=getattr(
+                settings,
+                "SUPPORTED_ANSWER_REBUILDER_MAX_OUTPUT_TOKENS",
+                500,
+            ),
+        ),
     )

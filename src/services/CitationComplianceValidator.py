@@ -17,9 +17,9 @@ class CitationComplianceDecision:
 
 
 class CitationComplianceValidator:
-    """Validate that every factual claim cites only available source IDs."""
+    """Validate that each factual claim cites an available source."""
 
-    _CITATION_PATTERN = re.compile(r"\[(S\d+)\]")
+    _CITATION_PATTERN = re.compile(r"\[(S\d+)\]", re.IGNORECASE)
 
     def __init__(self, claim_extractor: ClaimExtractor) -> None:
         self._claim_extractor = claim_extractor
@@ -31,19 +31,25 @@ class CitationComplianceValidator:
         available_source_ids: set[str],
         refusal_sentences: tuple[str, ...] = (),
     ) -> CitationComplianceDecision:
+        available_ids = {
+            source_id.upper()
+            for source_id in available_source_ids
+        }
         claims = self._claim_extractor.extract(
             answer,
             refusal_sentences=refusal_sentences,
         )
         uncited_ids = tuple(
-            claim.claim_id for claim in claims if not claim.cited_source_ids
+            claim.claim_id
+            for claim in claims
+            if not claim.cited_source_ids
         )
         cited_ids = {
-            source_id
+            source_id.upper()
             for claim in claims
             for source_id in claim.cited_source_ids
         }
-        invalid_ids = tuple(sorted(cited_ids - available_source_ids))
+        invalid_ids = tuple(sorted(cited_ids - available_ids))
         cited_claims = len(claims) - len(uncited_ids)
 
         if not claims:
@@ -69,5 +75,9 @@ class CitationComplianceValidator:
             uncited_claim_ids=uncited_ids,
         )
 
-    def evaluate_as_dict(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    def evaluate_as_dict(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         return asdict(self.evaluate(*args, **kwargs))

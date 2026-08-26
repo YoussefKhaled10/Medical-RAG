@@ -63,7 +63,6 @@ class APIClient:
         max_output_tokens: int = 1200,
         timeout_seconds: float = 300.0,
         conversation_history: list[dict[str, str]] | None = None,
-        include_global_knowledge: bool = False,
     ) -> dict[str, Any]:
         endpoint = f"{self.base_url}/api/v1/rag/ask-document"
         content_type = (
@@ -79,9 +78,6 @@ class APIClient:
             "conversation_history": json.dumps(conversation_history or []),
             "temperature": str(temperature),
             "max_output_tokens": str(max_output_tokens),
-            "include_global_knowledge": (
-                "true" if include_global_knowledge else "false"
-            ),
         }
         if generation_provider:
             data["generation_provider"] = generation_provider

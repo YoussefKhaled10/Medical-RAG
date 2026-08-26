@@ -36,14 +36,21 @@ class RetrievalPipelineService:
         use_deduplication: bool = True,
         use_reranking: bool = True,
         use_cross_language_keyword: bool | None = None,
+        semantic_query: str | None = None,
+        keyword_hints: tuple[str, ...] | list[str] | None = None,
     ) -> dict[str, Any]:
-        # Auto-enable only for Arabic. English remains on the exact evaluated path.
+        effective_semantic_query = " ".join(
+            str(semantic_query or query).split()
+        ).strip()
+        if not effective_semantic_query:
+            raise ValueError("semantic retrieval query must not be empty")
+
         if use_cross_language_keyword is None:
             use_cross_language_keyword = (
                 CrossLanguageKeywordTranslator.contains_arabic(query)
             )
 
-        candidates, _, effective_keyword_query = (
+        candidates, rewritten, effective_keyword_query = (
             await self._hybrid_service.search(
                 session=session,
                 query=query,
@@ -51,8 +58,10 @@ class RetrievalPipelineService:
                 limit=self._fused_candidate_limit,
                 project_id=project_id,
                 asset_id=asset_id,
-                use_query_rewriting=False,
+                use_query_rewriting=True,
                 use_cross_language_keyword=use_cross_language_keyword,
+                semantic_query=effective_semantic_query,
+                keyword_hints=keyword_hints,
             )
         )
 
@@ -62,11 +71,12 @@ class RetrievalPipelineService:
             candidates, removed_duplicates = (
                 self._deduplicator.deduplicate(candidates)
             )
-
         post_dedup_count = len(candidates)
+
+        rerank_query = rewritten.semantic_query.strip() or effective_semantic_query
         if use_reranking:
             final_results = await self._reranker.rerank(
-                query=query,
+                query=rerank_query,
                 candidates=candidates,
                 top_n=limit,
             )
@@ -84,6 +94,10 @@ class RetrievalPipelineService:
             "removed_duplicates": removed_duplicates,
             "cross_language_keyword_used": use_cross_language_keyword,
             "effective_keyword_query": effective_keyword_query,
+            "original_query": rewritten.original_query,
+            "semantic_query": rewritten.semantic_query,
+            "query_expansions": list(rewritten.expansions),
+            "rerank_query": rerank_query,
         }
 
     async def close(self) -> None:

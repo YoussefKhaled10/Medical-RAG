@@ -2,46 +2,59 @@ import streamlit as st
 
 
 def render_floating_assistant() -> None:
-    """Render a persistent animated assistant with a CSS-only close control."""
-    st.markdown(
-        """
-        <div class="rp-floating-assistant" aria-live="polite">
-          <input
-            class="rp-message-toggle"
-            id="rp-message-toggle"
-            type="checkbox"
-            aria-label="Hide welcome message"
-          >
-          <div class="rp-floating-message">
-            <label
-              class="rp-message-close"
-              for="rp-message-toggle"
-              title="Hide message"
-              aria-label="Hide welcome message"
-            >×</label>
-            <strong>Hello! I'm RecoveryPath AI</strong>
-            <span>Ask me anything about alcohol recovery.</span>
-          </div>
-          <div class="rp-floating-bot" aria-hidden="true">
-            <span class="rp-bot-spark rp-spark-a"></span>
-            <span class="rp-bot-spark rp-spark-b"></span>
-            <span class="rp-bot-spark rp-spark-c"></span>
-            <div class="rp-bot-glow"></div>
-            <div class="rp-bot-antenna"><i></i></div>
-            <div class="rp-bot-ear rp-ear-left"></div>
-            <div class="rp-bot-ear rp-ear-right"></div>
-            <div class="rp-bot-shell">
-              <div class="rp-bot-screen">
-                <i class="rp-eye rp-eye-left"></i>
-                <i class="rp-eye rp-eye-right"></i>
-                <i class="rp-smile"></i>
-              </div>
-              <div class="rp-bot-mark">RP</div>
-            </div>
-            <div class="rp-bot-ring rp-ring-one"></div>
-            <div class="rp-bot-ring rp-ring-two"></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    """Render a reopenable assistant that displays one message at a time."""
+    html = (
+        '<div class="rp-floating-assistant" aria-label="RecoveryPath assistant">'
+        '<input class="rp-message-toggle" type="checkbox" '
+        'id="rp-message-toggle" aria-hidden="true">'
+        '<div class="rp-floating-message" role="status" aria-live="polite">'
+        '<label class="rp-message-close" for="rp-message-toggle" '
+        'title="Close assistant messages" '
+        'aria-label="Close assistant messages">&times;</label>'
+        '<div class="rp-message-stage">'
+        '<div class="rp-assistant-slide rp-slide-1">'
+        '<strong>Hello! I&#39;m RecoveryPath AI</strong>'
+        '<span>Ask me anything about alcohol recovery.</span>'
+        '</div>'
+        '<div class="rp-assistant-slide rp-slide-2">'
+        '<strong>I&#39;m ready to help</strong>'
+        '<span>I search the available guidance before answering.</span>'
+        '</div>'
+        '<div class="rp-assistant-slide rp-slide-3">'
+        '<strong>Evidence comes first</strong>'
+        '<span>I verify supporting information and respond safely.</span>'
+        '</div>'
+        '<div class="rp-assistant-slide rp-slide-4">'
+        '<strong>Ask naturally</strong>'
+        '<span>I&#39;ll respond in the same language as your question.</span>'
+        '</div>'
+        '</div>'
+        '<div class="rp-slide-progress" aria-hidden="true">'
+        '<i></i><i></i><i></i><i></i>'
+        '</div>'
+        '</div>'
+        '<label class="rp-floating-bot" for="rp-message-toggle" '
+        'role="button" tabindex="0" '
+        'title="Open or close assistant messages" '
+        'aria-label="Open or close assistant messages">'
+        '<span class="rp-bot-antenna"><i></i></span>'
+        '<span class="rp-bot-ear rp-ear-left"></span>'
+        '<span class="rp-bot-ear rp-ear-right"></span>'
+        '<span class="rp-bot-shell">'
+        '<span class="rp-bot-screen">'
+        '<i class="rp-eye rp-eye-left"></i>'
+        '<i class="rp-eye rp-eye-right"></i>'
+        '<i class="rp-smile"></i>'
+        '</span>'
+        '<span class="rp-bot-mark">RP</span>'
+        '</span>'
+        '<span class="rp-bot-glow"></span>'
+        '<span class="rp-bot-ring rp-ring-one"></span>'
+        '<span class="rp-bot-ring rp-ring-two"></span>'
+        '<span class="rp-bot-spark rp-spark-a"></span>'
+        '<span class="rp-bot-spark rp-spark-b"></span>'
+        '<span class="rp-bot-spark rp-spark-c"></span>'
+        '</label>'
+        '</div>'
     )
+    st.markdown(html, unsafe_allow_html=True)

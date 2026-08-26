@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     RAG_STRONG_EVIDENCE_THRESHOLD: float = 0.533
     RAG_CANDIDATE_ABSOLUTE_THRESHOLD: float = 0.0
     RAG_CANDIDATE_RELATIVE_TO_TOP_RATIO: float = 0.0
+    
+    SHOW_DEVELOPER_MODE : bool
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
