@@ -38,6 +38,29 @@ SUGGESTIONS = [
 ]
 
 
+def get_boolean_setting(
+    name: str,
+    default: bool = False,
+) -> bool:
+    """Read a boolean from Streamlit Secrets first, then the environment."""
+    raw_value: Any = None
+
+    try:
+        raw_value = st.secrets.get(name, None)
+    except Exception:
+        raw_value = None
+
+    if raw_value is None:
+        raw_value = os.getenv(name, str(default))
+
+    return str(raw_value).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def load_css() -> None:
     path = Path(__file__).parent / "styles" / "custom.css"
     if path.exists():
@@ -389,16 +412,11 @@ def render_sidebar(client: APIClient) -> None:
             unsafe_allow_html=True,
         )
 
-        # Developer Mode is hidden by default.
-        # Set SHOW_DEVELOPER_MODE=true locally to display it.
-        show_developer_mode = (
-            os.getenv(
-                "SHOW_DEVELOPER_MODE",
-                "true",
-            )
-            .strip()
-            .lower()
-            == "true"
+        # Hidden by default in production. It can be enabled locally or in
+        # Streamlit Secrets with SHOW_DEVELOPER_MODE=true.
+        show_developer_mode = get_boolean_setting(
+            "SHOW_DEVELOPER_MODE",
+            False,
         )
 
         if show_developer_mode:
