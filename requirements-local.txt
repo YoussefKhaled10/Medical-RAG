@@ -14,8 +14,7 @@ PyMuPDF
 langchain-text-splitters
 google-genai
 groq
+streamlit
 httpx
 openai
 langdetect
-uvicorn
-pydantic
