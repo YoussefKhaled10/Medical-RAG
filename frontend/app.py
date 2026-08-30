@@ -29,8 +29,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-HISTORY_FILE = Path(__file__).parent / ".chat_history.json"
 MAX_HISTORY = 30
 SUGGESTIONS = [
     "ما أعراض الانسحاب من الكحول؟",
@@ -117,27 +115,15 @@ def logo_uri() -> str:
 
 
 def load_history() -> dict[str, Any]:
-    if not HISTORY_FILE.exists():
-        return {}
-    try:
-        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-        return data.get("conversations", {}) if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    """Never load shared conversations from disk."""
+    return {}
+
 
 
 def save_history() -> None:
-    try:
-        HISTORY_FILE.write_text(
-            json.dumps(
-                {"conversations": st.session_state.conversations},
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
+    """Chat history is session-only and is never written to disk."""
+    return None
+
 
 
 def initialize_state() -> None:
@@ -152,7 +138,7 @@ def initialize_state() -> None:
         "generation_provider": "groq",
         "developer_mode": False,
         "current_conv_id": None,
-        "conversations": load_history(),
+        "conversations": {},
         "pending_question": None,
     }
     for key, value in defaults.items():

@@ -46,3 +46,16 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .vercel-test/
+
+# Never commit or share chat history
+frontend/.chat_history.json
+**/.chat_history.json
+**/conversations.json
+**/chat_history.json
+
+# Private runtime chat history
+frontend/.chat_history.json
+**/.chat_history.json
+**/chat_history.json
+**/conversation_history.json
+**/conversations.json
