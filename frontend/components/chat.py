@@ -1,5 +1,6 @@
 import html
 import re
+import time
 from typing import Any
 import streamlit as st
 
@@ -111,6 +112,42 @@ def render_chat_interface(messages: list[dict[str, Any]]) -> None:
                 _details(message)
 
 
+
+
+def render_streaming_assistant(
+    text: str,
+    *,
+    language: str | None = None,
+    delay_seconds: float = 0.025,
+) -> None:
+    """Show a completed API answer progressively inside the chat UI."""
+    clean = str(text or "").strip()
+    if not clean:
+        return
+
+    resolved_language = language or ("ar" if ARABIC.search(clean) else "en")
+    direction = "rtl" if resolved_language == "ar" else "ltr"
+    words = clean.split()
+
+    with st.chat_message("assistant", avatar="🤖"):
+        st.markdown(
+            '<div class="assistant-title">RecoveryPath AI</div>',
+            unsafe_allow_html=True,
+        )
+        placeholder = st.empty()
+        rendered: list[str] = []
+
+        for index, word in enumerate(words):
+            rendered.append(word)
+            cursor = " ▌" if index < len(words) - 1 else ""
+            value = _html(" ".join(rendered))
+            placeholder.markdown(
+                f'<div class="assistant-message rp-streaming-answer" '
+                f'dir="{direction}">{value}{cursor}</div>',
+                unsafe_allow_html=True,
+            )
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
 
 def render_chat_bottom_anchor() -> None:
     st.markdown(

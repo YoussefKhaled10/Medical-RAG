@@ -20,6 +20,7 @@ from frontend.components.chat import (
     add_message,
     render_chat_bottom_anchor,
     render_chat_interface,
+    render_streaming_assistant,
 )
 from frontend.components.ingestion import render_sidebar_ingestion
 
@@ -65,6 +66,49 @@ def load_css() -> None:
     path = Path(__file__).parent / "styles" / "custom.css"
     if path.exists():
         st.markdown(f"<style>{path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <style>
+        [data-testid="stChatInput"] {
+            background: linear-gradient(135deg, #dffbf7 0%, #eef9ff 100%) !important;
+            border: 2px solid #16a6a1 !important;
+            border-radius: 22px !important;
+            box-shadow: 0 12px 30px rgba(22, 166, 161, 0.18) !important;
+            transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease !important;
+        }
+        [data-testid="stChatInput"]:focus-within {
+            border-color: #087f7a !important;
+            box-shadow: 0 0 0 5px rgba(22, 166, 161, 0.18),
+                        0 16px 36px rgba(8, 127, 122, 0.22) !important;
+            transform: translateY(-1px) !important;
+        }
+        [data-testid="stChatInput"] textarea {
+            color: #123b5d !important;
+            -webkit-text-fill-color: #123b5d !important;
+            caret-color: #087f7a !important;
+            font-weight: 650 !important;
+        }
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #3f6f84 !important;
+            -webkit-text-fill-color: #3f6f84 !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stChatInput"] button {
+            background: #0f9f99 !important;
+            color: #ffffff !important;
+            border-radius: 13px !important;
+        }
+        [data-testid="stChatInput"] button:hover {
+            background: #087f7a !important;
+        }
+        .rp-streaming-answer {
+            border-left: 3px solid #23c7bd !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def logo_uri() -> str:
@@ -602,6 +646,11 @@ def main() -> None:
             st.markdown("""<div class="rp-processing-card"><div class="rp-processing-bot"><span></span><i></i><b></b></div><div><strong>Checking the available evidence...</strong><small>Searching trusted sources and preparing a safe answer.</small><div class="rp-processing-dots"><em></em><em></em><em></em></div></div></div>""", unsafe_allow_html=True)
             response = call_rag_api(client, pending)
             answer = str(response.get("answer") or response.get("recommendation") or "")
+            render_streaming_assistant(
+                answer,
+                language=str(response.get("answer_language") or "") or None,
+                delay_seconds=0.025,
+            )
             add_message(st.session_state.messages, "assistant", answer, response)
             st.session_state.latest_response = response
             st.session_state.pending_question = None
