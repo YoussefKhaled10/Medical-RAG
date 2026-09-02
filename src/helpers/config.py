@@ -86,7 +86,41 @@ class Settings(BaseSettings):
     RAG_CANDIDATE_ABSOLUTE_THRESHOLD: float = 0.0
     RAG_CANDIDATE_RELATIVE_TO_TOP_RATIO: float = 0.0
     
-    SHOW_DEVELOPER_MODE : bool
+    SHOW_DEVELOPER_MODE : bool = False
+
+    # Response Variation and Diversity Settings
+    RAG_ENABLE_RESPONSE_VARIATION: bool = True
+    RAG_DEFAULT_TEMPERATURE: float = 0.30
+    RAG_MIN_TEMPERATURE: float = 0.20
+    RAG_MAX_TEMPERATURE: float = 0.38
+    RAG_TOP_P: float = 0.90
+    RAG_VARIATION_PROFILE_COUNT: int = 4
+    RAG_MAX_ANSWER_SENTENCES: int = 6
+
+    # Calibrated Refusal and Retrieval Gating Settings
+    RAG_ENABLE_CALIBRATED_RELEVANCE: bool = True
+    RAG_ENABLE_RETRIEVAL_RETRY: bool = True
+    RAG_ENABLE_EXPANDED_INTENTS: bool = True
+    RAG_RELEVANCE_WEAK_RECOVERABLE_THRESHOLD: float = 0.26
+
+    # Dynamic Turn-by-Turn Language Switching Settings
+    RAG_ENABLE_DYNAMIC_LANGUAGE: bool = True
+
+
+    # Authentication and JWT Settings
+    JWT_SECRET_KEY: str = "recoverypath_secret_jwt_key_2026_super_secure_salt_9988"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    GLOBAL_PROJECT_ID: int = 1
+
+    # Gmail SMTP Settings
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 465
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = "RecoveryPath AI <no-reply@recoverypath.ai>"
+
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

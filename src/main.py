@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.helpers.config import settings
-from src.models import close_database
+from src.models import close_database, init_db_tables
 from src.routes import (
+    auth_router,
     base_router,
     export_router,
     hybrid_retrieval_router,
@@ -20,9 +21,14 @@ from src.routes import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Release database resources when the application shuts down."""
+    """Initialize database tables and release resources on shutdown."""
+    try:
+        await init_db_tables()
+    except Exception as exc:
+        print(f"[STARTUP WARNING] Database table init: {exc}")
     yield
     await close_database()
+
 
 
 app = FastAPI(
@@ -87,9 +93,11 @@ async def health() -> dict[str, str]:
     }
 
 
+app.include_router(auth_router)
 app.include_router(base_router)
 app.include_router(ingestion_router)
 app.include_router(export_router)
 app.include_router(hybrid_retrieval_router)
 app.include_router(retrieval_pipeline_router)
 app.include_router(rag_router)
+

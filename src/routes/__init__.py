@@ -1,3 +1,4 @@
+from .auth import auth_router
 from .base import base_router
 from .export import export_router
 from .hybrid_retrieval import hybrid_retrieval_router
@@ -7,6 +8,7 @@ from .retrieval_pipeline import retrieval_pipeline_router
 
 
 __all__ = [
+    "auth_router",
     "base_router",
     "ingestion_router",
     "export_router",
@@ -14,3 +16,4 @@ __all__ = [
     "retrieval_pipeline_router",
     "rag_router",
 ]
+

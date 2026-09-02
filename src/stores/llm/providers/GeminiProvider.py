@@ -1,3 +1,4 @@
+from typing import Any
 from google import genai
 from google.genai import types
 
@@ -31,6 +32,7 @@ class GeminiProvider(GenerationInterface):
         user_prompt: str,
         temperature: float = 0.1,
         max_output_tokens: int = 1200,
+        top_p: float | None = None,
     ) -> GenerationResult:
         if self._closed:
             raise RuntimeError("Gemini provider is already closed")
@@ -42,21 +44,26 @@ class GeminiProvider(GenerationInterface):
             raise ValueError("temperature must be between 0.0 and 2.0")
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
+        if top_p is not None and not 0.0 < top_p <= 1.0:
+            raise ValueError("top_p must be greater than 0.0 and at most 1.0")
+
+        config_params: dict[str, Any] = {
+            "system_instruction": system_prompt.strip(),
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+            "automatic_function_calling": types.AutomaticFunctionCallingConfig(
+                disable=True,
+            ),
+        }
+        if top_p is not None:
+            config_params["top_p"] = top_p
 
         response = await self._client.models.generate_content(
             model=self._model_name,
             contents=user_prompt.strip(),
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt.strip(),
-                temperature=temperature,
-                max_output_tokens=max_output_tokens,
-                automatic_function_calling=(
-                    types.AutomaticFunctionCallingConfig(
-                        disable=True,
-                    )
-                ),
-            ),
+            config=types.GenerateContentConfig(**config_params),
         )
+
 
         text = (response.text or "").strip()
         if not text:

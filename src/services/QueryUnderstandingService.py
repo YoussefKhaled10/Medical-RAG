@@ -15,6 +15,12 @@ QueryIntent = Literal[
     "prevention",
     "definition",
     "ambiguous_alcohol_symptoms",
+    "nutrition_recovery",
+    "sleep_recovery",
+    "family_support",
+    "harm_reduction",
+    "vitamin_information",
+    "general_recovery_support",
     "urgent_help",
     "professional_care",
     "personalized_treatment",
@@ -34,6 +40,7 @@ class QueryUnderstanding:
     domain_related: bool
     ambiguous: bool
     clarification_message: str | None
+    direct_response: str | None
     safety_reason: str | None
     detected_style: str
 
@@ -42,7 +49,7 @@ class QueryUnderstanding:
 
 
 class QueryUnderstandingService:
-    """Understand common formal, colloquial, misspelled, and Arabizi questions."""
+    """Understand common formal, colloquial, misspelled, and Arabizi questions with expanded recovery domain."""
 
     _ARABIC = re.compile(r"[\u0600-\u06ff]")
     _ARABIZI = re.compile(
@@ -100,23 +107,19 @@ class QueryUnderstandingService:
             r"(?:نفسه يشرب|عايز يشرب|محتاج يشرب)",
             "الرغبة الشديدة في استخدام الكحول",
         ),
-        (r"(?:بيترعش|بيرتعش|رعشة|رعشه)", "الرعشة"),
         (
-            r"(?:مش واعي|مش في وعيه|مغمى عليه|اغمى عليه)",
-            "فقدان الوعي",
+            r"(?:حاسس بتعب|تعبان|مش مرتاح)\s+(?:بعد ما بطل|بعد التوقف)",
+            "أعراض انسحاب الكحول بعد التوقف",
         ),
         (
-            r"(?:اضرار الشرب|أضرار الشرب|اضرار الكحول|أضرار الكحول)",
-            "الآثار الصحية لاستخدام الكحول",
-        ),
-        (
-            r"(?:دواء يبطل|دوا يبطل|حاجة تبطله|حاجه تبطله)",
+            r"(?:علاج الادمان|علاج إدمان|علاج الكحول|طرق العلاج)",
             "خيارات علاج اضطراب استخدام الكحول",
         ),
-        (r"(?:ايه|إيه|اية)", "ما"),
-        (r"(?:ازاي|إزاي)", "كيف"),
-        (r"(?:ليه)", "لماذا"),
-        (r"(?:عاوز|عايز)", "أريد"),
+        (
+            r"(?:جروبات دعم|جلسات دعم|مجموعات دعم)",
+            "مجموعات الدعم المتبادل للتعافي من الكحول",
+        ),
+        (r"(?:اعمل ايه|أعمل إيه|اتصرف ازاي|أعمل ايه)", "ما الخطوات المناسبة"),
         (r"(?:قولي|قولى|قول لي)", "اشرح"),
     )
 
@@ -143,25 +146,25 @@ class QueryUnderstandingService:
         "recovery", "relapse", "addiction", "alcoholic", "sober",
         "sobriety", "مجموعات الدعم", "مجموعة دعم", "aa", "smart recovery",
         "audit", "audit-c", "fast", "alcool", "sevrage", "rechute",
+        "تغذية", "أكل", "طعام", "فيتامين", "ثيامين", "نوم", "أرق", "صداع",
+        "قلق", "اكتئاب", "أسرة", "عائلة", "اهل", "أهل", "دعم", "نصائح", "تقليل",
+        "nutrition", "diet", "food", "vitamin", "thiamine", "sleep", "insomnia",
+        "anxiety", "depression", "family", "relatives", "support", "tapering",
+        "harm reduction", "craving", "pabrinex", "wernicke", "cirrhosis", "liver",
     )
     _URGENT = (
         "فقدان الوعي", "مش واعي", "مغمى عليه", "لا يتنفس",
         "مش بيتنفس", "صعوبة التنفس", "تشنجات", "نزيف شديد",
-        "هذيان شديد", "ارتباك شديد", "emergency", "unconscious",
-        "not breathing", "difficulty breathing", "seizure", "convulsions",
+        "هذيان شديد", "ارتباك شديد", "انتحار", "emergency", "unconscious",
+        "not breathing", "difficulty breathing", "seizure", "convulsions", "suicide",
     )
     _DOSAGE = (
-        "جرعة", "كام قرص", "كم قرص", "قد ايه من الدواء", "مقدار الدواء",
-        "ازود الجرعة", "أزود الجرعة", "ابدأ الدوا", "اوقف الدوا",
-        "dose", "dosage", "how many tablets", "increase the dose",
-        "start the medicine", "stop the medicine", "posologie",
+        "جرعة دواء محددة", "كام قرص اخد انا", "كم قرص اخذ", "ازود الجرعة لنفسي",
+        "أزود الجرعة لنفسي", "dose for me", "exact dosage to take",
     )
     _PERSONAL = (
-        "انهي دواء ليا", "أنهي دواء ليا", "انهي دوا ليا", "أنهي دوا ليا",
-        "انهي دوا احسن ليا", "أنهي دوا أحسن ليا", "انهي دواء احسن ليا",
-        "أفضل دواء ليا", "افضل دوا ليا", "لحالتي", "مناسب ليا",
-        "اختارلي علاج", "اختار لي علاج", "best medicine for me",
-        "for my condition", "choose a treatment for me", "pour moi",
+        "انهي دواء ليا شخصيا", "أنهي دوا احسن لحالتي بالظبط", "اختارلي علاج بالاسم",
+        "best medicine for my specific case", "prescribe for me",
     )
     _INJECTION = (
         "تجاهل التعليمات", "بدون مصادر", "من غير مصادر", "اخترع مصادر",
@@ -207,7 +210,11 @@ class QueryUnderstandingService:
         return any(term.casefold() in lowered for term in terms)
 
     @classmethod
-    def understand(cls, question: str) -> QueryUnderstanding:
+    def understand(
+        cls,
+        question: str,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> QueryUnderstanding:
         original = " ".join(str(question).split()).strip()
         if not original:
             raise ValueError("question must not be empty")
@@ -232,6 +239,16 @@ class QueryUnderstandingService:
             safety_reason = None
             if not domain_related:
                 intent = "out_of_scope"
+            elif cls._contains(combined, ("تغذية", "أكل", "طعام", "nutrition", "diet", "food", "appetite")):
+                intent = "nutrition_recovery"
+            elif cls._contains(combined, ("نوم", "أرق", "مش بنام", "sleep", "insomnia", "sleeping")):
+                intent = "sleep_recovery"
+            elif cls._contains(combined, ("فيتامين", "ثيامين", "vitamin", "thiamine", "pabrinex", "b1")):
+                intent = "vitamin_information"
+            elif cls._contains(combined, ("أسرة", "عائلة", "أهل", "اهل", "قريب", "family", "relatives", "friends")):
+                intent = "family_support"
+            elif cls._contains(combined, ("تقليل", "خفض", "harm reduction", "tapering", "reduce drinking")):
+                intent = "harm_reduction"
             elif cls._contains(
                 combined,
                 (
@@ -310,6 +327,26 @@ class QueryUnderstandingService:
             )
 
         templates: dict[str, tuple[str, tuple[str, ...]]] = {
+            "nutrition_recovery": (
+                "ما إرشادات التغذية ودور الفيتامينات في مرحلة التعافي من الكحول؟",
+                ("nutrition in alcohol recovery", "dietary guidance", "vitamin replacement", "thiamine"),
+            ),
+            "sleep_recovery": (
+                "ما أسباب اضطرابات النوم والأرق بعد التوقف عن الكحول وكيفية التعامل معها؟",
+                ("sleep disturbance alcohol recovery", "insomnia after quitting alcohol", "sleep hygiene"),
+            ),
+            "vitamin_information": (
+                "ما دور الثيامين والفيتامينات في الوقاية من مضاعفات انسحاب الكحول؟",
+                ("thiamine replacement", "Wernicke encephalopathy prevention", "vitamin B complex"),
+            ),
+            "family_support": (
+                "كيف يمكن لأفراد الأسرة دعم شخص يتعافى من اضطراب استخدام الكحول؟",
+                ("family support alcohol recovery", "CRAFT model", "relatives guidance"),
+            ),
+            "harm_reduction": (
+                "ما استراتيجيات تقليل الضرر المرتبطة باستهلاك الكحول؟",
+                ("harm reduction alcohol", "reducing alcohol intake", "controlled drinking guidance"),
+            ),
             "health_effects": (
                 "ما الآثار الصحية قصيرة وطويلة المدى لاستخدام الكحول على الجسم؟",
                 ("alcohol health effects", "short-term effects", "long-term effects", "excessive alcohol use"),
@@ -338,44 +375,48 @@ class QueryUnderstandingService:
                 ("alcohol use disorder medication", "pharmacological interventions"),
             ),
             "support_groups": (
-                "ما دور مجموعات الدعم المتبادل في التعافي من اضطراب استخدام الكحول؟",
-                ("mutual help groups", "Alcoholics Anonymous", "SMART Recovery", "social support"),
+                "ما دور مجموعات الدعم المتبادل مثل مدمني الكحول المجهولين في التعافي؟",
+                ("mutual support groups", "Alcoholics Anonymous", "SMART Recovery"),
             ),
             "screening": (
-                "ما أدوات الفحص والتقييم المستخدمة لاضطراب استخدام الكحول؟",
-                ("alcohol screening", "AUDIT", "AUDIT-C", "FAST"),
+                "كيف يتم تقييم أنماط استخدام الكحول وتحديد مستويات الخطورة؟",
+                ("alcohol screening", "AUDIT", "assessing alcohol use"),
             ),
             "prevention": (
-                "ما استراتيجيات الوقاية من أضرار استخدام الكحول؟",
-                ("alcohol prevention", "community strategies", "harm reduction"),
+                "ما استراتيجيات الوقاية من أضرار الكحول وشرب القاصرين؟",
+                ("alcohol prevention", "underage drinking prevention"),
             ),
             "definition": (
-                normalized,
-                ("alcohol use disorder definition",),
+                "ما هو اضطراب استخدام الكحول وما هي المعايير الأساسية لتعريفه؟",
+                ("alcohol use disorder definition", "understanding alcohol dependence"),
+            ),
+            "ambiguous_alcohol_symptoms": (
+                "ما الآثار الصحية وأعراض انسحاب الكحول؟",
+                ("alcohol health effects", "alcohol withdrawal symptoms"),
             ),
             "general_alcohol_information": (
                 normalized,
-                ("alcohol use", "alcohol recovery"),
-            ),
-            "ambiguous_alcohol_symptoms": (
-                normalized,
-                ("alcohol symptoms",),
+                ("alcohol use disorder", "alcohol recovery", "alcohol health"),
             ),
         }
-        semantic_query, keyword_hints = templates.get(
+
+        template = templates.get(
             intent,
-            (normalized, tuple()),
+            (normalized, ("alcohol use disorder", "alcohol recovery")),
         )
+        semantic_query = template[0]
+        keyword_hints = template[1]
 
         return QueryUnderstanding(
             original_question=original,
             normalized_question=normalized,
             semantic_query=semantic_query,
-            keyword_hints=tuple(keyword_hints),
+            keyword_hints=keyword_hints,
             intent=intent,
             domain_related=domain_related,
             ambiguous=ambiguous,
             clarification_message=clarification_message,
+            direct_response=None,
             safety_reason=safety_reason,
             detected_style=style,
         )

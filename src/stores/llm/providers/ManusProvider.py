@@ -115,8 +115,10 @@ class ManusProvider(GenerationInterface):
         user_prompt: str,
         temperature: float = 0.1,
         max_output_tokens: int = 1200,
+        top_p: float | None = None,
     ) -> GenerationResult:
-        del temperature, max_output_tokens
+        del temperature, max_output_tokens, top_p
+
 
         instruction = (
             f"{system_prompt}\n\n"

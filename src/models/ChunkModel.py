@@ -123,7 +123,7 @@ class ChunkModel:
         session: AsyncSession,
         query: str,
         limit: int = 20,
-        project_id: int | None = None,
+        project_id: int | Sequence[int] | None = None,
         asset_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """PostgreSQL full-text search over section titles and chunk text."""
@@ -159,7 +159,10 @@ class ChunkModel:
             .where(document_vector.op("@@")(query_vector))
         )
         if project_id is not None:
-            statement = statement.where(Asset.project_id == project_id)
+            if isinstance(project_id, (list, tuple, set)):
+                statement = statement.where(Asset.project_id.in_(list(project_id)))
+            else:
+                statement = statement.where(Asset.project_id == project_id)
         if asset_id is not None:
             statement = statement.where(Chunk.asset_id == asset_id)
 
@@ -170,3 +173,4 @@ class ChunkModel:
 
         result = await session.execute(statement)
         return [dict(row._mapping) for row in result.all()]
+

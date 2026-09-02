@@ -148,23 +148,46 @@ class PGVector_Provider(VectorDBInterface):
             raise ValueError("limit must be greater than zero")
 
         vector = self._validate_embedding(query_embedding)
-        metadata_filter = json.dumps(dict(filters or {}))
         pool = await self._get_pool()
+        raw_filters = dict(filters or {})
+
+        project_ids = raw_filters.pop("project_ids", None)
+        if "project_id" in raw_filters and project_ids is None:
+            pid = raw_filters.pop("project_id")
+            if isinstance(pid, (list, tuple, set)):
+                project_ids = list(pid)
+            elif pid is not None:
+                project_ids = [pid]
+
+        where_clauses = []
+        params: list[Any] = [vector]
+        param_idx = 2
+
+        if project_ids:
+            where_clauses.append(f"(metadata->>'project_id')::int = ANY(${param_idx}::int[])")
+            params.append([int(p) for p in project_ids])
+            param_idx += 1
+
+        if raw_filters:
+            where_clauses.append(f"metadata @> ${param_idx}::jsonb")
+            params.append(json.dumps(raw_filters))
+            param_idx += 1
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        params.append(limit)
+        limit_idx = param_idx
+
+        query_sql = f"""
+            SELECT id, text, metadata,
+                   1 - (embedding <=> $1) AS score
+            FROM {self._table_name}
+            {where_sql}
+            ORDER BY embedding <=> $1
+            LIMIT ${limit_idx}
+        """
 
         async with pool.acquire() as connection:
-            records = await connection.fetch(
-                f"""
-                SELECT id, text, metadata,
-                       1 - (embedding <=> $1) AS score
-                FROM {self._table_name}
-                WHERE metadata @> $2::jsonb
-                ORDER BY embedding <=> $1
-                LIMIT $3
-                """,
-                vector,
-                metadata_filter,
-                limit,
-            )
+            records = await connection.fetch(query_sql, *params)
 
         return [
             VectorSearchResult(
@@ -179,6 +202,7 @@ class PGVector_Provider(VectorDBInterface):
             )
             for record in records
         ]
+
 
     async def delete_by_ids(self, document_ids: Sequence[str]) -> int:
         if not document_ids:

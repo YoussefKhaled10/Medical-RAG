@@ -17,5 +17,6 @@ groq
 httpx
 openai
 langdetect
-uvicorn
+streamlit
 pydantic
+email-validator

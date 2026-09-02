@@ -31,7 +31,7 @@ class RetrievalPipelineService:
         session: AsyncSession,
         query: str,
         limit: int = 5,
-        project_id: int | None = None,
+        project_id: int | list[int] | tuple[int, ...] | None = None,
         asset_id: int | None = None,
         use_deduplication: bool = True,
         use_reranking: bool = True,
@@ -39,6 +39,7 @@ class RetrievalPipelineService:
         semantic_query: str | None = None,
         keyword_hints: tuple[str, ...] | list[str] | None = None,
     ) -> dict[str, Any]:
+
         effective_semantic_query = " ".join(
             str(semantic_query or query).split()
         ).strip()

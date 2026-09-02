@@ -21,8 +21,10 @@ class GenerationInterface(ABC):
         user_prompt: str,
         temperature: float = 0.1,
         max_output_tokens: int = 1200,
+        top_p: float | None = None,
     ) -> GenerationResult:
         raise NotImplementedError
+
 
     @abstractmethod
     async def close(self) -> None:

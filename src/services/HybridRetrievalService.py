@@ -79,12 +79,15 @@ class HybridRetrievalService:
     async def _semantic_search(
         self,
         query: str,
-        project_id: int | None,
+        project_id: int | list[int] | tuple[int, ...] | None,
         asset_id: int | None,
     ) -> list[_Candidate]:
         filters: dict[str, Any] = {}
         if project_id is not None:
-            filters["project_id"] = project_id
+            if isinstance(project_id, (list, tuple, set)):
+                filters["project_ids"] = list(project_id)
+            else:
+                filters["project_id"] = project_id
         if asset_id is not None:
             filters["asset_id"] = asset_id
 
@@ -123,7 +126,7 @@ class HybridRetrievalService:
         self,
         session: AsyncSession,
         query: str,
-        project_id: int | None,
+        project_id: int | list[int] | tuple[int, ...] | None,
         asset_id: int | None,
     ) -> list[_Candidate]:
         rows = await ChunkModel.keyword_search(
@@ -133,6 +136,7 @@ class HybridRetrievalService:
             project_id=project_id,
             asset_id=asset_id,
         )
+
         return [
             _Candidate(
                 key=f"{row['asset_id']}:{row['chunk_id']}",
@@ -216,13 +220,14 @@ class HybridRetrievalService:
         query: str,
         search_type: SearchType = SearchType.HYBRID,
         limit: int = 5,
-        project_id: int | None = None,
+        project_id: int | list[int] | tuple[int, ...] | None = None,
         asset_id: int | None = None,
         use_query_rewriting: bool = False,
         use_cross_language_keyword: bool = False,
         semantic_query: str | None = None,
         keyword_hints: tuple[str, ...] | list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], RewrittenQuery, str]:
+
         rewritten = self._query_rewriter.rewrite(query)
 
         effective_semantic_query = " ".join(

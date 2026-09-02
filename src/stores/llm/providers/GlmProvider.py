@@ -87,17 +87,21 @@ class GlmProvider(GenerationInterface):
         user_prompt: str,
         temperature: float,
         max_output_tokens: int,
+        top_p: float | None = None,
     ) -> Any:
-        return await self._client.chat.completions.create(
-            model=self._model_name,
-            messages=[
+        params: dict[str, Any] = {
+            "model": self._model_name,
+            "messages": [
                 {"role": "system", "content": system_prompt.strip()},
                 {"role": "user", "content": user_prompt.strip()},
             ],
-            temperature=temperature,
-            max_tokens=max_output_tokens,
-            stream=False,
-        )
+            "temperature": temperature,
+            "max_tokens": max_output_tokens,
+            "stream": False,
+        }
+        if top_p is not None:
+            params["top_p"] = top_p
+        return await self._client.chat.completions.create(**params)
 
     async def generate(
         self,
@@ -106,6 +110,7 @@ class GlmProvider(GenerationInterface):
         user_prompt: str,
         temperature: float = 0.1,
         max_output_tokens: int = 1200,
+        top_p: float | None = None,
     ) -> GenerationResult:
         if self._closed:
             raise RuntimeError("GLM provider is already closed")
@@ -115,6 +120,8 @@ class GlmProvider(GenerationInterface):
             raise ValueError("temperature must be between 0.0 and 2.0")
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
+        if top_p is not None and not 0.0 < top_p <= 1.0:
+            raise ValueError("top_p must be greater than 0.0 and at most 1.0")
 
         total_attempts = self._empty_response_retries + 1
         last_failure = "empty content"
@@ -124,7 +131,9 @@ class GlmProvider(GenerationInterface):
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
+                top_p=top_p,
             )
+
             request_id = getattr(response, "request_id", None) or getattr(response, "id", None)
             choices = getattr(response, "choices", None) or []
             text, finish_reason = self._extract_text(response)

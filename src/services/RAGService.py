@@ -2,7 +2,7 @@ import re
 from dataclasses import asdict
 from time import perf_counter
 from typing import Any
-
+from src.helpers.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.CitationAccuracyEvaluator import CitationAccuracyEvaluator
@@ -294,6 +294,69 @@ class RAGService:
         }
 
     @staticmethod
+    def _remove_dosage_details(answer: str) -> str:
+        """Remove exact medical quantities and schedules from a final answer."""
+        text = str(answer or "").strip()
+        if not text:
+            return text
+        unit = r"(?:mg|mcg|µg|g|kg|ml|mL|iu|IU|مغ|مجم|ميكروغرام|غرام|جرام|مل|لتر)"
+        number = r"(?:\d+(?:[.,]\d+)?)"
+        range_part = rf"{number}(?:\s*(?:-|–|—|to|إلى)\s*{number})?"
+        dosage = rf"{range_part}\s*{unit}"
+        text = re.sub(rf"\(\s*{dosage}(?:\s+[^)]{{0,55}})?\)", "", text, flags=re.IGNORECASE)
+        text = re.sub(dosage, "", text, flags=re.IGNORECASE)
+        patterns = (
+            r"\b(?:once|twice|three|four)\s+(?:a|per)\s+(?:day|week|month)\b",
+            r"\b\d+\s*(?:times?|x)\s*(?:a|per)\s*(?:day|week|month)\b",
+            r"\bevery\s+\d+\s*(?:hours?|days?|weeks?|months?)\b",
+            r"\bfor\s+\d+(?:\s*(?:-|–|—|to)\s*\d+)?\s*(?:days?|weeks?|months?|years?)\b",
+            r"(?:مرة|مرتين|ثلاث\s+مرات|أربع\s+مرات)\s+(?:يوميًا|يومياً|في\s+اليوم|أسبوعيًا|أسبوعياً)",
+            r"كل\s+\d+\s*(?:ساعات?|أيام?|أسابيع|أشهر)",
+            r"لمدة\s+\d+(?:\s*(?:-|–|—|إلى)\s*\d+)?\s*(?:أيام?|أسابيع|أشهر|سنوات)",
+            r"\b(?:daily|weekly|monthly)\b",
+            r"(?:يوميًا|يومياً|أسبوعيًا|أسبوعياً|شهريًا|شهرياً)",
+        )
+        for pattern in patterns:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\(\s*\)", "", text)
+        text = re.sub(r"\s+([،,؛;:.])", r"\1", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\n[ \t]+", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    @staticmethod
+    def _medical_boundary(language: str) -> str:
+        boundaries = {
+            "ar": "هذه معلومات عامة مستندة إلى المصادر المتاحة، وليست وصفة أو جرعة مناسبة لحالة فردية. يُفضّل استشارة طبيب أو صيدلي مؤهل قبل بدء أي دواء أو مكمل، أو إيقافه، أو تغييره.",
+            "en": "This is general information from the available sources, not an individualized prescription or dosage. Consult a qualified doctor or pharmacist before starting, stopping, or changing any medicine or supplement.",
+            "fr": "Ces informations générales proviennent des sources disponibles et ne constituent pas une prescription ni une posologie personnalisée. Consultez un médecin ou un pharmacien qualifié avant de commencer, d’arrêter ou de modifier un médicament ou un complément.",
+        }
+        return boundaries.get(language, boundaries["en"])
+
+    @staticmethod
+    def _requires_medical_boundary(answer: str) -> bool:
+        value = str(answer or "").casefold()
+        triggers = (
+            "دواء", "دوائي", "علاج", "فيتامين", "مكمل", "ثيامين", "إلكتروليت",
+            "مغنيسيوم", "بوتاسيوم", "فوسفات", "medicine", "medication", "treatment",
+            "vitamin", "supplement", "thiamine", "electrolyte", "pharmacological",
+            "naltrexone", "acamprosate", "disulfiram", "nalmefene", "نالتريكسون",
+            "أكامبروسيت", "ديسلفيرام", "نالميفين",
+        )
+        return any(item in value for item in triggers)
+
+    @classmethod
+    def _prepare_final_medical_answer(cls, answer: str, language: str) -> str:
+        clean = cls._remove_dosage_details(answer)
+        if not clean or not cls._requires_medical_boundary(clean):
+            return clean
+        boundary = cls._medical_boundary(language)
+        if boundary in clean:
+            return clean
+        return f"{clean}\n\n{boundary}"
+
+    @staticmethod
     def _post_generation_refusal(language: str) -> str:
         messages = {
             "ar": (
@@ -311,18 +374,87 @@ class RAGService:
         }
         return messages.get(language, messages["en"])
 
+    async def _recover_all_unsupported_claims(
+        self,
+        *,
+        question: str,
+        context: Any,
+        results: list[dict[str, Any]],
+        query_understanding: Any,
+        conversation_history: list[dict[str, str]],
+        response_language: str,
+        refusal_sentences: tuple[str, ...],
+        max_output_tokens: int,
+    ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[Any], list[Any], dict[str, Any]] | None:
+        """Run one strict recovery pass and keep it only if at least one claim is supported."""
+        prompt = self._prompt_builder.build(
+            question=question,
+            context=context,
+            query_understanding=query_understanding,
+            conversation_history=conversation_history,
+            response_language=response_language,
+            variation_profile="direct_answer",
+        )
+        recovery_rules = """
+ALL-UNSUPPORTED RECOVERY PASS:
+The previous answer failed because it combined supported and unsupported details.
+Generate a new, shorter answer using only facts explicitly stated in AVAILABLE EVIDENCE.
+Write one independently verifiable medical claim per sentence.
+Do not create long symptom or treatment lists.
+Do not infer specific symptoms from a broad clinical category.
+Use exactly one supporting source per sentence whenever possible.
+Omit every detail not explicitly stated in the cited source.
+A short answer containing one supported fact is better than a complete refusal.
+""".strip()
+        generation = await self._generation_provider.generate(
+            system_prompt=prompt.system_prompt + "\n\n" + recovery_rules,
+            user_prompt=prompt.user_prompt,
+            temperature=0.0,
+            max_output_tokens=min(max_output_tokens, 700),
+            top_p=None,
+        )
+        candidate = self._normalize_source_citations(generation.text.strip())
+        refusal_category, candidate = RefusalPolicy.parse_marked_answer(candidate)
+        if refusal_category or not candidate:
+            return None
+        repaired = await self._citation_repair_service.repair_if_needed(
+            candidate,
+            sources=context.sources,
+            refusal_sentences=refusal_sentences,
+            response_language=response_language,
+        )
+        if not repaired.final_decision.passed:
+            return None
+        candidate = self._normalize_source_citations(repaired.answer)
+        used_sources = self._select_sources(candidate, context.sources)
+        evidence_items = self._evidence_builder.build(used_sources=used_sources, retrieval_results=results)
+        evidence = [asdict(item) for item in evidence_items]
+        claims = self._claim_extractor.extract(candidate, refusal_sentences=refusal_sentences)
+        support_results = await self._claim_support_evaluator.evaluate(claims, evidence=evidence)
+        if not any(item.supported for item in support_results):
+            return None
+        repair_info = {
+            "attempted": True,
+            "repaired": repaired.repaired,
+            "initial_passed": repaired.initial_decision.passed,
+            "final_passed": repaired.final_decision.passed,
+            "reason": "all_unsupported_recovery_pass",
+        }
+        return candidate, used_sources, evidence, claims, support_results, repair_info
+
     async def ask(
         self,
         *,
         session: AsyncSession,
         question: str,
-        project_id: int | None = None,
+        project_id: int | list[int] | tuple[int, ...] | None = None,
         asset_id: int | None = None,
         retrieval_limit: int = 5,
         temperature: float = 0.0,
         max_output_tokens: int = 1200,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+
         total_started = perf_counter()
         normalized_question = " ".join(question.split()).strip()
         if not normalized_question:
@@ -332,12 +464,26 @@ class RAGService:
             conversation_history
         )
 
+        # Extract last explicit user language for short neutral message fallback
+        last_explicit_user_lang = None
+        for h in reversed(cleaned_history):
+            if h.get("role") == "user":
+                content = str(h.get("content") or "").strip()
+                det = LanguageDetector.detect(content)
+                if det.code in {"ar", "en", "fr", "es", "de"}:
+                    last_explicit_user_lang = det.code
+                    break
+
+        detected_language = LanguageDetector.detect(
+            normalized_question,
+            last_explicit_user_language=last_explicit_user_lang,
+        )
+        response_language = detected_language.code
+
         understood_query = await self._query_understanding.understand(
             normalized_question,
             conversation_history=cleaned_history,
         )
-        detected_language = LanguageDetector.detect(normalized_question)
-        response_language = detected_language.code
         refusal_sentences = self._refusal_sentences()
 
         # The intent model both classifies and writes social responses.
@@ -374,6 +520,7 @@ class RAGService:
                     or RefusalPolicy.decision(
                         normalized_question,
                         reason="insufficient_evidence",
+                        response_language=response_language,
                     ).message
                 )
                 category = "insufficient_evidence"
@@ -383,11 +530,13 @@ class RAGService:
                 decision = RefusalPolicy.decision(
                     normalized_question,
                     reason=pre_reason,
+                    response_language=response_language,
                 )
                 answer = decision.message
                 category = decision.reason
                 requires_professional = decision.requires_professional
                 urgent = decision.urgent
+
 
             total_finished = perf_counter()
             empty_retrieval = {
@@ -555,6 +704,7 @@ class RAGService:
             refusal_decision = RefusalPolicy.decision(
                 normalized_question,
                 low_relevance=True,
+                response_language=response_language,
             )
             total_finished = perf_counter()
             return self._refusal_output(
@@ -607,6 +757,23 @@ class RAGService:
                 },
             )
 
+        # ── Controlled Response Variation ────────────────────────────────
+        variation_profiles = ["direct_answer", "key_point_first", "practical_structure", "educational_explanation"]
+        profile_temperatures = {
+            "direct_answer": 0.22,
+            "key_point_first": 0.28,
+            "practical_structure": 0.32,
+            "educational_explanation": 0.36,
+        }
+        seed_hash = abs(hash(f"{normalized_question}_{total_started}")) % len(variation_profiles)
+        variation_profile = variation_profiles[seed_hash]
+
+        effective_temp = temperature
+        effective_top_p = None
+        if settings.RAG_ENABLE_RESPONSE_VARIATION and temperature == 0.0:
+            effective_temp = profile_temperatures.get(variation_profile, settings.RAG_DEFAULT_TEMPERATURE)
+            effective_top_p = settings.RAG_TOP_P
+
         context_started = perf_counter()
         context = self._context_builder.build(results)
         prompt = self._prompt_builder.build(
@@ -614,6 +781,8 @@ class RAGService:
             context=context,
             query_understanding=understood_query,
             conversation_history=cleaned_history,
+            response_language=response_language,
+            variation_profile=variation_profile,
         )
         context_finished = perf_counter()
 
@@ -631,10 +800,12 @@ class RAGService:
                 + uncertainty_instruction
             ),
             user_prompt=prompt.user_prompt,
-            temperature=temperature,
+            temperature=effective_temp,
             max_output_tokens=max_output_tokens,
+            top_p=effective_top_p,
         )
         generation_finished = perf_counter()
+
 
         raw_generated_answer = self._normalize_source_citations(
             generation.text.strip()
@@ -729,14 +900,25 @@ class RAGService:
                 )
             )
 
-            has_supported_claims = any(
-                result.supported
-                for result in support_results
-            )
-            has_unsupported_claims = any(
-                not result.supported
-                for result in support_results
-            )
+            recovery_generation_attempted = False
+            recovery_generation_passed = False
+            if support_results and not any(result.supported for result in support_results):
+                recovery_generation_attempted = True
+                recovered = await self._recover_all_unsupported_claims(
+                    question=normalized_question,
+                    context=context,
+                    results=results,
+                    query_understanding=understood_query,
+                    conversation_history=cleaned_history,
+                    response_language=response_language,
+                    refusal_sentences=refusal_sentences,
+                    max_output_tokens=max_output_tokens,
+                )
+                if recovered is not None:
+                    generated_answer, used_sources, evidence, extracted_claims, support_results, citation_repair = recovered
+                    recovery_generation_passed = True
+            has_supported_claims = any(result.supported for result in support_results)
+            has_unsupported_claims = any(not result.supported for result in support_results)
             claims_pruned = False
 
             if has_supported_claims and has_unsupported_claims:
@@ -758,12 +940,14 @@ class RAGService:
                                     question=normalized_question,
                                     supported_answer=pruned_answer,
                                     response_language=response_language,
+                                    variation_profile=variation_profile,
                                 )
                             )
                             generated_answer = self._normalize_source_citations(
                                 rebuilt_answer
                             )
                             claims_rebuilt = True
+
                         except Exception as exc:
                             claim_rebuild_error = (
                                 f"{type(exc).__name__}: {exc}"
@@ -810,6 +994,9 @@ class RAGService:
             claim_validation["claim_rebuild_error"] = (
                 claim_rebuild_error if claims_pruned else None
             )
+            claim_validation["all_claims_unsupported_initially"] = recovery_generation_attempted
+            claim_validation["recovery_generation_attempted"] = recovery_generation_attempted
+            claim_validation["recovery_generation_passed"] = recovery_generation_passed
         claim_validation_finished = perf_counter()
 
         citation_evaluation_started = perf_counter()
@@ -892,7 +1079,10 @@ class RAGService:
             returned_sources = []
             returned_evidence = []
         else:
-            answer = generated_answer
+            answer = self._prepare_final_medical_answer(
+                generated_answer,
+                response_language,
+            )
             refused = False
             grounded = bool(evidence)
             refusal = None
@@ -1281,6 +1471,7 @@ class RAGService:
             decision = RefusalPolicy.decision(
                 normalized_question,
                 low_relevance=True,
+                response_language=response_language,
             )
             finished = perf_counter()
             return self._refusal_output(
@@ -1321,6 +1512,22 @@ class RAGService:
                 },
             )
 
+        variation_profiles = ["direct_answer", "key_point_first", "practical_structure", "educational_explanation"]
+        profile_temperatures = {
+            "direct_answer": 0.22,
+            "key_point_first": 0.28,
+            "practical_structure": 0.32,
+            "educational_explanation": 0.36,
+        }
+        seed_hash = abs(hash(f"{normalized_question}_{total_started}")) % len(variation_profiles)
+        variation_profile = variation_profiles[seed_hash]
+
+        effective_temp = temperature
+        effective_top_p = None
+        if settings.RAG_ENABLE_RESPONSE_VARIATION and temperature == 0.0:
+            effective_temp = profile_temperatures.get(variation_profile, settings.RAG_DEFAULT_TEMPERATURE)
+            effective_top_p = settings.RAG_TOP_P
+
         context_started = perf_counter()
         context = self._context_builder.build(results)
         prompt = self._prompt_builder.build(
@@ -1328,6 +1535,8 @@ class RAGService:
             context=context,
             query_understanding=understood_query,
             conversation_history=cleaned_history,
+            response_language=response_language,
+            variation_profile=variation_profile,
         )
         context_finished = perf_counter()
 
@@ -1343,10 +1552,12 @@ class RAGService:
                 + uncertainty_instruction
             ),
             user_prompt=prompt.user_prompt,
-            temperature=temperature,
+            temperature=effective_temp,
             max_output_tokens=max_output_tokens,
+            top_p=effective_top_p,
         )
         generation_finished = perf_counter()
+
 
         raw_answer = self._normalize_source_citations(generation.text.strip())
         refusal_category, cleaned_answer = RefusalPolicy.parse_marked_answer(raw_answer)
@@ -1420,6 +1631,23 @@ class RAGService:
                 extracted_claims,
                 evidence=evidence,
             )
+            recovery_generation_attempted = False
+            recovery_generation_passed = False
+            if support_results and not any(item.supported for item in support_results):
+                recovery_generation_attempted = True
+                recovered = await self._recover_all_unsupported_claims(
+                    question=normalized_question,
+                    context=context,
+                    results=results,
+                    query_understanding=understood_query,
+                    conversation_history=cleaned_history,
+                    response_language=response_language,
+                    refusal_sentences=refusal_sentences,
+                    max_output_tokens=max_output_tokens,
+                )
+                if recovered is not None:
+                    generated_answer, used_sources, evidence, extracted_claims, support_results, citation_repair = recovered
+                    recovery_generation_passed = True
             has_supported = any(item.supported for item in support_results)
             has_unsupported = any(not item.supported for item in support_results)
             if has_supported and has_unsupported:
@@ -1437,9 +1665,11 @@ class RAGService:
                                     question=normalized_question,
                                     supported_answer=pruned,
                                     response_language=response_language,
+                                    variation_profile=variation_profile,
                                 )
                             )
                             claims_rebuilt = True
+
                         except Exception as exc:
                             claim_rebuild_error = f"{type(exc).__name__}: {exc}"
                             generated_answer = pruned
@@ -1467,6 +1697,9 @@ class RAGService:
             claim_validation["claims_pruned"] = claims_pruned
             claim_validation["claims_rebuilt"] = claims_rebuilt
             claim_validation["claim_rebuild_error"] = claim_rebuild_error
+            claim_validation["all_claims_unsupported_initially"] = recovery_generation_attempted
+            claim_validation["recovery_generation_attempted"] = recovery_generation_attempted
+            claim_validation["recovery_generation_passed"] = recovery_generation_passed
         claim_validation_finished = perf_counter()
 
         citation_evaluation_started = perf_counter()
@@ -1542,7 +1775,10 @@ class RAGService:
             returned_sources = []
             returned_evidence = []
         else:
-            answer = generated_answer
+            answer = self._prepare_final_medical_answer(
+                generated_answer,
+                response_language,
+            )
             refused = False
             grounded = bool(evidence)
             refusal = None

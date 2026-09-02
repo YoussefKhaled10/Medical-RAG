@@ -215,6 +215,11 @@ class RAGResponse(BaseModel):
     retrieval_summary: dict[str, Any]
 
 
+from src.dependencies.auth import get_optional_current_user
+from src.helpers.config import settings
+from src.models.db_schemes.medical_rag import User
+
+
 @rag_router.post(
     "/ask",
     response_model=RAGResponse,
@@ -222,8 +227,31 @@ class RAGResponse(BaseModel):
 )
 async def ask_rag(
     request: RAGRequest,
+    current_user: User | None = Depends(get_optional_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> RAGResponse:
+    global_id = settings.GLOBAL_PROJECT_ID
+    if current_user is not None:
+        user_vault_id = current_user.private_project_id
+        if request.project_id is not None:
+            if request.project_id != global_id and request.project_id != user_vault_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: You can only search the Global Knowledge Base and your own Private Vault.",
+                )
+            effective_projects: list[int] | int = [request.project_id]
+        else:
+            effective_projects = [global_id]
+            if user_vault_id and user_vault_id not in effective_projects:
+                effective_projects.append(user_vault_id)
+    else:
+        if request.project_id is not None and request.project_id != global_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication required to search private project vaults.",
+            )
+        effective_projects = [global_id]
+
     try:
         service = create_rag_service(request.generation_provider)
     except ValueError as exc:
@@ -233,7 +261,7 @@ async def ask_rag(
         output = await service.ask(
             session=session,
             question=request.question,
-            project_id=request.project_id,
+            project_id=effective_projects,
             asset_id=request.asset_id,
             retrieval_limit=request.retrieval_limit,
             temperature=request.temperature,
@@ -243,6 +271,7 @@ async def ask_rag(
                 for item in request.conversation_history
             ],
         )
+
     except GenerationProviderError as exc:
         detail: dict[str, Any] = {
             "message": str(exc),

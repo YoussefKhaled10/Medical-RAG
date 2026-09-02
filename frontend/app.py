@@ -16,6 +16,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from frontend.api_client import APIClient
 from frontend.components.animated_assistant import render_floating_assistant
+from frontend.components.auth import (
+    render_login_page,
+    render_otp_page,
+    render_register_page,
+    render_user_profile_sidebar,
+)
 from frontend.components.chat import (
     add_message,
     render_chat_bottom_anchor,
@@ -23,6 +29,8 @@ from frontend.components.chat import (
     render_streaming_assistant,
 )
 from frontend.components.ingestion import render_sidebar_ingestion
+
+
 
 st.set_page_config(
     page_title="RecoveryPath AI",
@@ -135,6 +143,11 @@ def initialize_state() -> None:
         "search_scope": "all_projects",
         "active_query_mode": "global_kb",
         "ephemeral_uploaded_doc": None,
+        "user": None,
+        "auth_token": None,
+        "refresh_token": None,
+        "current_page": "app",
+        "pending_registration": None,
         "generation_provider": "groq",
         "developer_mode": False,
         "current_conv_id": None,
@@ -144,6 +157,8 @@ def initialize_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
 
 
 def conversation_title(messages: list[dict[str, Any]]) -> str:
@@ -442,7 +457,10 @@ def render_sidebar(client: APIClient) -> None:
             unsafe_allow_html=True,
         )
 
+        render_user_profile_sidebar(client)
+
         # Hidden by default in production. It can be enabled locally or in
+
         # Streamlit Secrets with SHOW_DEVELOPER_MODE=true.
         show_developer_mode = get_boolean_setting(
             "SHOW_DEVELOPER_MODE",
@@ -475,7 +493,7 @@ def render_sidebar(client: APIClient) -> None:
             st.session_state.asset_id = None
 
         if st.button(
-            "＋  New conversation",
+            "+ New conversation",
             type="primary",
             use_container_width=True,
             key="new_conversation_button",
@@ -486,7 +504,7 @@ def render_sidebar(client: APIClient) -> None:
         st.markdown(
             '''
             <div class="sidebar-divider"></div>
-            <div class="sidebar-section-label">
+            <div class="rp-sidebar-section-title">
                 CHAT HISTORY
             </div>
             ''',
@@ -495,7 +513,7 @@ def render_sidebar(client: APIClient) -> None:
 
         search = st.text_input(
             "Search conversations",
-            placeholder="Search conversations…",
+            placeholder="Search conversations...",
             label_visibility="collapsed",
             key="history_search",
         )
@@ -531,7 +549,7 @@ def render_sidebar(client: APIClient) -> None:
                 )
 
                 label = (
-                    f" {title}\n\n"
+                    f"{title}\n\n"
                     f"{relative_date(updated_at)}"
                 )
 
@@ -545,7 +563,7 @@ def render_sidebar(client: APIClient) -> None:
 
             with delete_col:
                 if st.button(
-                    "×",
+                    "X",
                     key=f"delete_{conv_id}",
                     help="Delete conversation",
                 ):
@@ -553,7 +571,15 @@ def render_sidebar(client: APIClient) -> None:
                     st.rerun()
 
         st.markdown(
-            '<div class="sidebar-divider"></div>',
+            '''
+            <div class="sidebar-divider"></div>
+            <div class="rp-sidebar-section-title">
+                DOCUMENT ANALYSIS & VAULT
+            </div>
+            <p style="font-size: 0.76rem; color: #94a3b8; line-height: 1.45; margin: 0 0 10px 0;">
+                Upload a medical report or guideline (PDF or TXT) to query it directly.
+            </p>
+            ''',
             unsafe_allow_html=True,
         )
 
@@ -561,18 +587,13 @@ def render_sidebar(client: APIClient) -> None:
 
         st.markdown(
             '''
-            <div class="sidebar-notice">
-                <strong>
-                    Informational support only
-                </strong>
-                <p>
-                    RecoveryPath AI does not replace a qualified
-                    doctor, pharmacist, or emergency service.
-                </p>
+            <div class="rp-sidebar-footer">
+                &copy; 2025 RecoveryPath AI
             </div>
             ''',
             unsafe_allow_html=True,
         )
+
 
 
 def render_header() -> None:
@@ -589,17 +610,36 @@ def render_header() -> None:
 def main() -> None:
     load_css()
     initialize_state()
-    api_url = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
+    api_url = "http://127.0.0.1:8000"
     try:
-        if not os.getenv("BACKEND_API_URL") and "BACKEND_API_URL" in st.secrets:
-            api_url = str(st.secrets["BACKEND_API_URL"])
+        if "BACKEND_API_URL" in st.secrets:
+            api_url = str(st.secrets["BACKEND_API_URL"]).rstrip("/")
+        elif os.getenv("BACKEND_API_URL"):
+            api_url = str(os.getenv("BACKEND_API_URL")).rstrip("/")
     except Exception:
-        pass
-    client = APIClient(base_url=api_url)
+        if os.getenv("BACKEND_API_URL"):
+            api_url = str(os.getenv("BACKEND_API_URL")).rstrip("/")
+    token = st.session_state.get("auth_token")
+    client = APIClient(base_url=api_url, auth_token=token)
+
+    # Route to standalone login / register / otp pages
+    current_page = st.session_state.get("current_page", "app")
+    if current_page == "login":
+        render_login_page(client)
+        return
+    elif current_page == "register":
+        render_register_page(client)
+        return
+    elif current_page == "otp":
+        render_otp_page(client)
+        return
+
     render_sidebar(client)
+
     render_header()
     render_scope_selector()
     render_floating_assistant()
+
     if st.session_state.get("messages"):
         st.markdown(
             '<a class="rp-chat-top-button" href="#rp-chat-top" '

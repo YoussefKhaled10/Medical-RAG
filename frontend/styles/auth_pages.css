@@ -1,0 +1,5 @@
+/*
+  auth_pages.css — legacy compatibility shim.
+  All real styles are now in auth.css (v5).
+  This file is kept to avoid import errors but intentionally empty of rules.
+*/

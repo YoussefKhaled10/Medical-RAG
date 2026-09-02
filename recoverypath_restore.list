@@ -1,0 +1,61 @@
+;
+; Archive created at 2026-08-30 18:33:13 EEST
+;     dbname: med-rag
+;     TOC Entries: 50
+;     Compression: gzip
+;     Dump Version: 1.15-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 16.14 (Debian 16.14-1.pgdg12+1)
+;     Dumped by pg_dump version: 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+;
+;
+; Selected TOC Entries:
+;
+2; 3079 16437 EXTENSION - vector 
+3668; 0 0 COMMENT - EXTENSION vector 
+216; 1259 16389 TABLE public alembic_version postgres
+220; 1259 16406 TABLE public assets postgres
+219; 1259 16405 SEQUENCE public assets_id_seq postgres
+3669; 0 0 SEQUENCE OWNED BY public assets_id_seq postgres
+222; 1259 16422 TABLE public chunks postgres
+221; 1259 16421 SEQUENCE public chunks_id_seq postgres
+3670; 0 0 SEQUENCE OWNED BY public chunks_id_seq postgres
+218; 1259 16395 TABLE public projects postgres
+217; 1259 16394 SEQUENCE public projects_id_seq postgres
+3671; 0 0 SEQUENCE OWNED BY public projects_id_seq postgres
+223; 1259 16814 TABLE public vector_documents postgres
+3466; 2604 16409 DEFAULT public assets id postgres
+3471; 2604 16425 DEFAULT public chunks id postgres
+3462; 2604 16398 DEFAULT public projects id postgres
+3654; 0 16389 TABLE DATA public alembic_version postgres
+3658; 0 16406 TABLE DATA public assets postgres
+3660; 0 16422 TABLE DATA public chunks postgres
+3656; 0 16395 TABLE DATA public projects postgres
+3661; 0 16814 TABLE DATA public vector_documents postgres
+3672; 0 0 SEQUENCE SET public assets_id_seq postgres
+3673; 0 0 SEQUENCE SET public chunks_id_seq postgres
+3674; 0 0 SEQUENCE SET public projects_id_seq postgres
+3483; 2606 16393 CONSTRAINT public alembic_version alembic_version_pkc postgres
+3489; 2606 16413 CONSTRAINT public assets assets_pkey postgres
+3496; 2606 16429 CONSTRAINT public chunks chunks_pkey postgres
+3487; 2606 16402 CONSTRAINT public projects projects_pkey postgres
+3494; 2606 16798 CONSTRAINT public assets uq_assets_project_checksum postgres
+3502; 2606 16807 CONSTRAINT public chunks uq_chunks_asset_chunk_id postgres
+3507; 2606 16823 CONSTRAINT public vector_documents vector_documents_pkey postgres
+3490; 1259 16796 INDEX public ix_assets_document_name postgres
+3491; 1259 16419 INDEX public ix_assets_processing_status postgres
+3492; 1259 16420 INDEX public ix_assets_project_id postgres
+3497; 1259 16435 INDEX public ix_chunks_asset_id postgres
+3498; 1259 16803 INDEX public ix_chunks_asset_page postgres
+3499; 1259 16804 INDEX public ix_chunks_asset_section postgres
+3500; 1259 16805 INDEX public ix_chunks_document_name postgres
+3484; 1259 16403 INDEX public ix_projects_name postgres
+3485; 1259 16404 INDEX public ix_projects_status postgres
+3503; 1259 16829 INDEX public ix_vector_documents_asset_id postgres
+3504; 1259 16830 INDEX public ix_vector_documents_embedding_hnsw postgres
+3505; 1259 16831 INDEX public ix_vector_documents_metadata_gin postgres
+3508; 2606 16414 FK CONSTRAINT public assets assets_project_id_fkey postgres
+3509; 2606 16430 FK CONSTRAINT public chunks chunks_asset_id_fkey postgres
+3510; 2606 16824 FK CONSTRAINT public vector_documents vector_documents_asset_id_fkey postgres

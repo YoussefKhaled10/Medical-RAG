@@ -54,19 +54,38 @@ class RefusalPolicy:
         return "insufficient_evidence"
 
     @classmethod
-    def decision(cls, question: str, *, reason: RefusalReason | None = None, low_relevance: bool = False) -> RefusalDecision:
+    def decision(
+        cls,
+        question: str,
+        *,
+        reason: RefusalReason | None = None,
+        low_relevance: bool = False,
+        response_language: str | None = None,
+    ) -> RefusalDecision:
         selected = reason or cls.classify(question, low_relevance=low_relevance)
-        language = LanguageDetector.detect(question).code
+        language = response_language or LanguageDetector.detect(question).code
         messages = cls._MESSAGES.get(language, cls._MESSAGES["en"])
-        return RefusalDecision(selected, messages[selected], selected in {"professional_care", "personalized_treatment", "urgent_help"}, selected == "urgent_help")
+        return RefusalDecision(
+            selected,
+            messages.get(selected, messages["insufficient_evidence"]),
+            selected in {"professional_care", "personalized_treatment", "urgent_help"},
+            selected == "urgent_help",
+        )
 
     @staticmethod
     def marker(reason: RefusalReason) -> str:
         return f"[REFUSAL:{reason.upper()}]"
 
     @classmethod
-    def marked_message(cls, question: str, *, reason: RefusalReason) -> str:
-        return f"{cls.marker(reason)}\n{cls.decision(question, reason=reason).message}"
+    def marked_message(
+        cls,
+        question: str,
+        *,
+        reason: RefusalReason,
+        response_language: str | None = None,
+    ) -> str:
+        return f"{cls.marker(reason)}\n{cls.decision(question, reason=reason, response_language=response_language).message}"
+
 
     @staticmethod
     def parse_marked_answer(answer: str) -> tuple[str | None, str]:

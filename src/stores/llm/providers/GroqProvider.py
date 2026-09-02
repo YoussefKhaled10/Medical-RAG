@@ -119,18 +119,22 @@ class GroqProvider(GenerationInterface):
         user_prompt: str,
         temperature: float,
         max_output_tokens: int,
+        top_p: float | None = None,
     ) -> Any:
-        return await self._client.chat.completions.create(
-            model=self._model_name,
-            messages=[
+        params: dict[str, Any] = {
+            "model": self._model_name,
+            "messages": [
                 {"role": "system", "content": system_prompt.strip()},
                 {"role": "user", "content": user_prompt.strip()},
             ],
-            temperature=temperature,
-            max_completion_tokens=max_output_tokens,
-            reasoning_effort=self._reasoning_effort,
-            reasoning_format=self._reasoning_format,
-        )
+            "temperature": temperature,
+            "max_completion_tokens": max_output_tokens,
+            "reasoning_effort": self._reasoning_effort,
+            "reasoning_format": self._reasoning_format,
+        }
+        if top_p is not None:
+            params["top_p"] = top_p
+        return await self._client.chat.completions.create(**params)
 
     async def generate(
         self,
@@ -139,6 +143,7 @@ class GroqProvider(GenerationInterface):
         user_prompt: str,
         temperature: float = 0.1,
         max_output_tokens: int = 1200,
+        top_p: float | None = None,
     ) -> GenerationResult:
         if self._closed:
             raise RuntimeError("Groq provider is already closed")
@@ -150,6 +155,8 @@ class GroqProvider(GenerationInterface):
             raise ValueError("temperature must be between 0.0 and 2.0")
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
+        if top_p is not None and not 0.0 < top_p <= 1.0:
+            raise ValueError("top_p must be greater than 0.0 and at most 1.0")
 
         total_attempts = self._empty_response_retries + 1
         last_request_id: str | None = None
@@ -167,7 +174,9 @@ class GroqProvider(GenerationInterface):
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_output_tokens=attempt_token_budget,
+                top_p=top_p,
             )
+
 
             last_request_id = getattr(response, "id", None)
             choices = getattr(response, "choices", None) or []
@@ -246,6 +255,7 @@ class GroqProvider(GenerationInterface):
         user_prompt: str,
         temperature: float,
         max_output_tokens: int,
+        top_p: float | None = None,
     ) -> Any:
         try:
             return await self._create_completion(
@@ -253,6 +263,7 @@ class GroqProvider(GenerationInterface):
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
+                top_p=top_p,
             )
         except AuthenticationError as exc:
             raise GenerationAuthenticationError(

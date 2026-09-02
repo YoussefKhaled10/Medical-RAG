@@ -1,6 +1,8 @@
 import hashlib
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
+
 
 from fastapi import (
     APIRouter,
@@ -144,26 +146,53 @@ async def _save_file(
 _save_pdf = _save_file
 
 
+from src.dependencies.auth import get_optional_current_user
+from src.models.db_schemes.medical_rag import User
+
+
 @ingestion_router.post(
     "/upload-index",
     response_model=IngestionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload and index a document (PDF or TXT)",
+    summary="Upload and index a document (PDF or TXT) into user's private vault",
 )
 async def upload_and_index_document(
-    project_id: int = Form(..., gt=0),
+    project_id: int | None = Form(default=None),
     file: UploadFile = File(...),
+    current_user: User | None = Depends(get_optional_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> IngestionResponse:
+    # 1. Determine effective project target and enforce isolation
+    if current_user is not None:
+        target_project_id = current_user.private_project_id
+        if project_id is not None and project_id != current_user.private_project_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only upload files into your own Private Vault.",
+            )
+        if not target_project_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User does not have an active Private Vault assigned.",
+            )
+    else:
+        if project_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="project_id is required for unauthenticated uploads.",
+            )
+        target_project_id = project_id
+
     project = await ProjectModel.get_by_id(
         session=session,
-        project_id=project_id,
+        project_id=target_project_id,
     )
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} was not found.",
+            detail=f"Project {target_project_id} was not found.",
         )
+
 
     saved_path: Path | None = None
     asset_id: int | None = None
@@ -172,12 +201,12 @@ async def upload_and_index_document(
     try:
         saved_path, file_size, checksum, file_type = await _save_file(
             upload_file=file,
-            project_id=project_id,
+            project_id=target_project_id,
         )
 
         existing_asset = await AssetModel.get_by_checksum(
             session=session,
-            project_id=project_id,
+            project_id=target_project_id,
             file_checksum=checksum,
         )
         if existing_asset is not None:
@@ -216,7 +245,7 @@ async def upload_and_index_document(
         original_name = _safe_file_name(file.filename)
         asset = await AssetModel.create(
             session=session,
-            project_id=project_id,
+            project_id=target_project_id,
             document_name=Path(original_name).stem,
             file_name=original_name,
             file_path=str(saved_path),
@@ -225,6 +254,7 @@ async def upload_and_index_document(
             file_checksum=checksum,
         )
         asset_id = asset.id
+
 
         service = create_ingestion_service()
         chunks = await service.ingest_asset(
@@ -240,7 +270,7 @@ async def upload_and_index_document(
             raise RuntimeError("Asset disappeared after ingestion.")
 
         return IngestionResponse(
-            project_id=project_id,
+            project_id=target_project_id,
             asset_id=asset.id,
             document_name=asset.document_name,
             processing_status=completed_asset.processing_status,
@@ -268,7 +298,6 @@ async def upload_and_index_document(
 upload_and_index_pdf = upload_and_index_document
 
 
-
 @ingestion_router.get(
     "/assets/{asset_id}/chunks",
     response_model=AssetChunksResponse,
@@ -277,6 +306,7 @@ upload_and_index_pdf = upload_and_index_document
 )
 async def get_asset_chunks(
     asset_id: int,
+    current_user: User | None = Depends(get_optional_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> AssetChunksResponse:
     asset = await AssetModel.get_by_id(
@@ -287,6 +317,13 @@ async def get_asset_chunks(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Asset {asset_id} was not found.",
+        )
+
+    # If user is authenticated, ensure they own the asset's project or it's global KB (project_id 1)
+    if current_user is not None and asset.project_id != 1 and asset.project_id != current_user.private_project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You do not have permission to view this document.",
         )
 
     service = create_ingestion_service()
@@ -303,3 +340,42 @@ async def get_asset_chunks(
         total_chunks=len(output),
         chunks=[ChunkResponse(**item) for item in output],
     )
+
+
+@ingestion_router.delete(
+    "/assets/{asset_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete an asset and its vector documents",
+)
+async def delete_asset(
+    asset_id: int,
+    current_user: User | None = Depends(get_optional_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    asset = await AssetModel.get_by_id(
+        session=session,
+        asset_id=asset_id,
+    )
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Asset {asset_id} was not found.",
+        )
+
+    if current_user is not None and asset.project_id != current_user.private_project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You can only delete documents from your own Private Vault.",
+        )
+
+    service = create_ingestion_service()
+    try:
+        await service.remove_asset_index(session=session, asset_id=asset_id)
+        if asset.file_path:
+            Path(asset.file_path).unlink(missing_ok=True)
+        await AssetModel.delete(session=session, asset_id=asset_id, commit=True)
+    finally:
+        await service.close()
+
+    return {"success": True, "message": f"Asset {asset_id} deleted successfully."}
+
