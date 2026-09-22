@@ -112,6 +112,87 @@ class APIClient:
         finally:
             self.set_token(None)
 
+    
+    # ================= Conversations Methods =================
+
+    def list_conversations(self, limit: int = 30, offset: int = 0, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v1/conversations"
+        params = {"limit": limit, "offset": offset}
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.get(endpoint, params=params, headers=self._headers())
+        try:
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = self._parse_error_detail(exc)
+            raise RuntimeError(f"Failed to fetch conversations: {detail}") from exc
+
+    def create_conversation(self, title: str, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v1/conversations"
+        payload = {"title": title}
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.post(endpoint, json=payload, headers=self._headers())
+        try:
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = self._parse_error_detail(exc)
+            raise RuntimeError(f"Failed to create conversation: {detail}") from exc
+
+    def get_messages(self, conversation_id: int, limit: int = 50, offset: int = 0, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v1/conversations/{conversation_id}/messages"
+        params = {"limit": limit, "offset": offset}
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.get(endpoint, params=params, headers=self._headers())
+        try:
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = self._parse_error_detail(exc)
+            raise RuntimeError(f"Failed to fetch messages: {detail}") from exc
+
+    def send_message_to_conversation(
+        self,
+        conversation_id: int,
+        question: str,
+        client_request_id: str,
+        generation_provider: str | None = None,
+        retrieval_limit: int = 5,
+        temperature: float = 0.0,
+        max_output_tokens: int = 1200,
+        timeout_seconds: float = 300.0,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        endpoint = f"{self.base_url}/api/v1/conversations/{conversation_id}/messages"
+        payload = {
+            "question": question,
+            "client_request_id": client_request_id,
+            "retrieval_limit": retrieval_limit,
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+        }
+        if generation_provider:
+            payload["generation_provider"] = generation_provider
+
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.post(endpoint, json=payload, headers=self._headers())
+        try:
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = self._parse_error_detail(exc)
+            raise RuntimeError(f"Failed to send message: {detail}") from exc
+
+    def delete_conversation(self, conversation_id: int, timeout_seconds: float = 30.0) -> None:
+        endpoint = f"{self.base_url}/api/v1/conversations/{conversation_id}"
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.delete(endpoint, headers=self._headers())
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = self._parse_error_detail(exc)
+            raise RuntimeError(f"Failed to delete conversation: {detail}") from exc
+
     # ================= RAG & Ingestion Methods =================
 
     def ask_rag(
@@ -120,7 +201,9 @@ class APIClient:
         question: str,
         project_id: int | None = None,
         asset_id: int | None = None,
-        retrieval_limit: int = 5,
+        search_scope: str = "system",
+        retrieval_limit: int = 10,
+        retrieval_mode: str = "hybrid",
         generation_provider: str | None = None,
         temperature: float = 0.0,
         max_output_tokens: int = 1200,
@@ -129,10 +212,12 @@ class APIClient:
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "question": question,
+            "conversation_history": conversation_history or [],
+            "search_scope": search_scope,
             "retrieval_limit": retrieval_limit,
+            "retrieval_mode": retrieval_mode,
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
-            "conversation_history": conversation_history or [],
         }
         if project_id is not None:
             payload["project_id"] = project_id
@@ -140,15 +225,17 @@ class APIClient:
             payload["asset_id"] = asset_id
         if generation_provider:
             payload["generation_provider"] = generation_provider
-
-        with httpx.Client(timeout=timeout_seconds) as client:
-            response = client.post(f"{self.base_url}/api/v1/rag/ask", json=payload, headers=self._headers())
+        endpoint = f"{self.base_url}/api/v1/rag/ask"
         try:
+            with httpx.Client(timeout=timeout_seconds) as client:
+                response = client.post(endpoint, json=payload, headers=self._headers())
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
             detail = self._parse_error_detail(exc)
             raise RuntimeError(f"RAG API returned HTTP {exc.response.status_code}: {detail}") from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Could not connect to the RAG API at {endpoint}: {exc}") from exc
 
     ask_question = ask_rag
     ask = ask_rag
@@ -187,6 +274,17 @@ class APIClient:
         except httpx.HTTPStatusError as exc:
             detail = self._parse_error_detail(exc)
             raise RuntimeError(f"Document RAG API returned HTTP {exc.response.status_code}: {detail}") from exc
+
+    def list_my_assets(self, timeout_seconds: float = 30.0) -> list[dict[str, Any]]:
+        endpoint = f"{self.base_url}/api/v1/ingestion/my-assets"
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.get(endpoint, headers=self._headers())
+        try:
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else []
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Could not load private files: {self._parse_error_detail(exc)}") from exc
 
     def upload_document(
         self,

@@ -38,6 +38,7 @@ class RetrievalPipelineService:
         use_cross_language_keyword: bool | None = None,
         semantic_query: str | None = None,
         keyword_hints: tuple[str, ...] | list[str] | None = None,
+        search_type: SearchType | str = SearchType.HYBRID,
     ) -> dict[str, Any]:
 
         effective_semantic_query = " ".join(
@@ -51,11 +52,16 @@ class RetrievalPipelineService:
                 CrossLanguageKeywordTranslator.contains_arabic(query)
             )
 
+        try:
+            effective_search_type = search_type if isinstance(search_type, SearchType) else SearchType(str(search_type).strip().lower())
+        except ValueError as exc:
+            raise ValueError("search_type must be semantic, keyword, or hybrid") from exc
+
         candidates, rewritten, effective_keyword_query = (
             await self._hybrid_service.search(
                 session=session,
                 query=query,
-                search_type=SearchType.HYBRID,
+                search_type=effective_search_type,
                 limit=self._fused_candidate_limit,
                 project_id=project_id,
                 asset_id=asset_id,
@@ -66,21 +72,36 @@ class RetrievalPipelineService:
             )
         )
 
+        # Retrieval near-deduplication is disabled by design. RRF still merges
+        # the identical asset_id + chunk_id returned by both branches.
         pre_dedup_count = len(candidates)
         removed_duplicates: list[dict[str, Any]] = []
-        if use_deduplication:
-            candidates, removed_duplicates = (
-                self._deduplicator.deduplicate(candidates)
-            )
-        post_dedup_count = len(candidates)
-
-        rerank_query = rewritten.semantic_query.strip() or effective_semantic_query
+        post_dedup_count = pre_dedup_count
+        rerank_query = effective_semantic_query
+        reranking_fallback = False
+        reranking_error = None
         if use_reranking:
-            final_results = await self._reranker.rerank(
-                query=rerank_query,
-                candidates=candidates,
-                top_n=limit,
-            )
+            try:
+                final_results = await self._reranker.rerank(
+                    query=rerank_query,
+                    candidates=candidates,
+                    top_n=limit,
+                )
+            except Exception as exc:
+                # Retrieval remains available when an external reranker is rate
+                # limited or temporarily unavailable. RRF order is deterministic.
+                reranking_fallback = True
+                reranking_error = f"{type(exc).__name__}: {exc}"
+                print(
+                    "[RetrievalPipelineService] Cohere reranking fallback to RRF: "
+                    f"{reranking_error}",
+                    flush=True,
+                )
+                final_results = [dict(item) for item in candidates[:limit]]
+                for rank, item in enumerate(final_results, start=1):
+                    item["rank"] = rank
+                    item["pre_rerank_rank"] = rank
+                    item["rerank_score"] = None
         else:
             final_results = [dict(item) for item in candidates[:limit]]
             for rank, item in enumerate(final_results, start=1):
@@ -99,6 +120,11 @@ class RetrievalPipelineService:
             "semantic_query": rewritten.semantic_query,
             "query_expansions": list(rewritten.expansions),
             "rerank_query": rerank_query,
+            "reranking_fallback": reranking_fallback,
+            "reranking_error": reranking_error,
+            "deduplication_enabled": False,
+            "candidates_sent_to_reranker": len(candidates),
+            **self._hybrid_service.last_diagnostics,
         }
 
     async def close(self) -> None:

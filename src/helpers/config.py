@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_SIZE : int = 384
     COHERE_RERANK_MODEL : str = "rerank-v3.5"
     
+    INTENT_PROVIDER: str
+    INTENT_MODEL: str
+    INTENT_MODEL_MAX_OUTPUT_TOKENS: int
     GENERATION_PROVIDER: str = "gemini"
+    GEMINI_GENERATION_MODEL : str
     
     ZENMUX_API_KEY: str = ""
     GLM_BASE_URL: str = (
@@ -49,9 +53,29 @@ class Settings(BaseSettings):
     GLM_TIMEOUT_SECONDS: float = 120.0
     
     GEMINI_API_KEY: str = ""
+    # Hybrid intelligent chunking
+    CHUNKING_STRATEGY: str
+    CHUNKING_PROVIDER: str
+    CHUNKING_MODEL: str
+    CHUNKING_MAX_OUTPUT_TOKENS: int
+    CHUNK_MIN_TOKENS: int
+    CHUNK_TARGET_TOKENS: int
+    CHUNK_MAX_TOKENS: int
+    CHUNK_SIMILARITY_THRESHOLD: float
+    CHUNK_PLANNER_WINDOW_TOKENS: int
+    CHUNK_PLANNER_MAX_BLOCKS: int
+    CHUNK_PLANNER_OVERLAP_BLOCKS: int
+    CHUNK_PLANNER_CONCURRENCY: int
+    CHUNK_PLANNER_TIMEOUT_SECONDS: float
+    CHUNK_LLM_COMPLEX_ONLY: bool
+    CHUNK_REMOVE_DUPLICATES: bool
+    CHUNK_PYTHON_FALLBACK: bool
+    CHUNK_NEAR_DUPLICATE_THRESHOLD: float
+    CHUNK_BOUNDARY_OVERLAP_WORDS: int
+
     GROQ_API_KEY : str = ""
-    GROQ_GENERATION_MODEL : str = "openai/gpt-oss-120b"
-    GEMINI_GENERATION_MODEL: str = "gemini-2.5-flash"
+    GROQ_GENERATION_MODEL : str
+    GEMINI_GENERATION_MODEL: str
     MANUS_API_KEY: str = ""
     MANUS_AGENT_PROFILE: str = "manus-1.6"
     RAG_MAX_CONTEXT_CHARACTERS: int = 24000
@@ -59,11 +83,11 @@ class Settings(BaseSettings):
     RAG_RELEVANCE_THRESHOLD : float = 0.320982
     RAG_MIN_RELEVANT_CHUNKS : int = 1
     
-    KEYWORD_TRANSLATION_PROVIDER : str = "groq"
-    KEYWORD_TRANSLATION_MODEL : str = "openai/gpt-oss-120b"
+    KEYWORD_TRANSLATION_PROVIDER : str 
+    KEYWORD_TRANSLATION_MODEL : str 
     
-    CLAIM_JUDGE_PROVIDER: str = "groq"
-    CLAIM_JUDGE_MODEL: str = "openai/gpt-oss-20b"
+    CLAIM_JUDGE_PROVIDER: str
+    CLAIM_JUDGE_MODEL: str
 
     CLAIM_SUPPORT_THRESHOLD: float = 0.80
     CLAIM_JUDGE_MAX_OUTPUT_TOKENS: int = 300
@@ -112,7 +136,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
-    GLOBAL_PROJECT_ID: int = 1
+    GLOBAL_PROJECT_ID: int = 2
 
     # Gmail SMTP Settings
     SMTP_SERVER: str = "smtp.gmail.com"

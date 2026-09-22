@@ -914,3 +914,99 @@ a.rp-chat-bottom-button {
 
 
 .rp-auth-hero{position:relative;isolation:isolate;overflow:hidden;max-width:900px;margin:1.25rem auto 1.65rem;padding:3.15rem 2.5rem 2.6rem;text-align:center;border:1px solid rgba(84,231,217,.24);border-radius:32px;background:linear-gradient(145deg,#061a30 0%,#082b48 55%,#064b59 130%);box-shadow:0 32px 90px rgba(4,31,57,.22);animation:rpAuthEnter .55s ease both}.rp-auth-hero:before{content:"";position:absolute;inset:0;z-index:-2;background:radial-gradient(circle at 18% 12%,rgba(50,225,207,.22),transparent 28%),radial-gradient(circle at 85% 18%,rgba(33,134,226,.24),transparent 30%)}.rp-auth-orb{position:absolute;z-index:-1;border-radius:50%;filter:blur(2px);opacity:.55}.rp-auth-orb-one{width:180px;height:180px;left:-70px;bottom:-90px;background:rgba(27,195,184,.22)}.rp-auth-orb-two{width:210px;height:210px;right:-100px;top:-110px;background:rgba(31,126,213,.25)}.rp-auth-logo-mark{width:68px;height:68px;margin:0 auto 1.2rem;display:grid;place-items:center;border:1px solid rgba(172,255,246,.45);border-radius:22px;background:linear-gradient(145deg,#15bcae,#1688d5);box-shadow:0 13px 34px rgba(20,185,178,.25);color:#fff;font-size:1.08rem;font-weight:900;letter-spacing:.04em}.rp-auth-eyebrow{color:#61eadb!important;font-size:.72rem;font-weight:850;letter-spacing:.22em}.rp-auth-hero h1{margin:.65rem 0 .55rem!important;color:#fff!important;-webkit-text-fill-color:#fff!important;font-size:clamp(2rem,4vw,3.25rem)!important;line-height:1.08!important}.rp-auth-hero p{max-width:650px;margin:0 auto!important;color:#bdd6e4!important;-webkit-text-fill-color:#bdd6e4!important;font-size:.98rem!important;line-height:1.75!important}.rp-auth-step{display:inline-flex;margin-top:1.4rem;padding:.52rem .88rem;border:1px solid rgba(92,234,220,.22);border-radius:999px;background:rgba(47,207,193,.09);color:#c9fff9!important;font-size:.74rem;font-weight:750}.rp-auth-card-title{max-width:100%;margin:0 0 .65rem;padding:.2rem .1rem}.rp-auth-card-title h2{margin:0!important;color:#102a43!important;-webkit-text-fill-color:#102a43!important;font-size:1.28rem!important}.rp-auth-card-title p{margin:.25rem 0 0!important;color:#60788e!important;-webkit-text-fill-color:#60788e!important;font-size:.82rem!important}.stForm{padding:1.55rem!important;border:1px solid #d4e3ee!important;border-radius:24px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 18px 54px rgba(18,62,96,.10)!important}.stForm [data-testid="stWidgetLabel"] p,.stForm label p{color:#173f5d!important;-webkit-text-fill-color:#173f5d!important;opacity:1!important;font-weight:750!important}.stForm [data-baseweb="input"]{overflow:hidden!important;border:1px solid #c7d9e7!important;border-radius:13px!important;background:#f8fbfd!important}.stForm [data-baseweb="input"]:focus-within{border-color:#16a6a1!important;box-shadow:0 0 0 3px rgba(22,166,161,.10)!important}.stForm input{color:#102a43!important;-webkit-text-fill-color:#102a43!important;background:#f8fbfd!important;caret-color:#16a6a1!important;font-weight:600!important}.stForm input::placeholder{color:#8299aa!important;-webkit-text-fill-color:#8299aa!important;opacity:1!important}.stForm button[kind="primary"]{min-height:3rem!important;margin-top:.5rem!important;border:0!important;border-radius:13px!important;background:linear-gradient(135deg,#167fd0,#14bcae)!important;box-shadow:0 11px 26px rgba(17,143,168,.22)!important;color:#fff!important;font-weight:850!important}.stForm button[kind="primary"] p{color:#fff!important;-webkit-text-fill-color:#fff!important}.rp-auth-privacy{text-align:center;color:#71879a!important;-webkit-text-fill-color:#71879a!important;font-size:.72rem!important;line-height:1.55!important}.rp-otp-destination{margin:0 0 .9rem;padding:1rem 1.1rem;text-align:center;border:1px solid #bfdde6;border-radius:16px;background:linear-gradient(135deg,#eef9fb,#edf5fd)}.rp-otp-destination span{display:block;color:#60788e!important;font-size:.7rem}.rp-otp-destination strong{display:block;margin-top:.25rem;color:#126f82!important;font-size:.94rem}.rp-profile-card{display:flex;align-items:center;gap:.75rem;margin:.35rem 0 .8rem;padding:.85rem;border:1px solid rgba(83,225,211,.2);border-radius:16px;background:rgba(255,255,255,.055)}.rp-profile-avatar{width:42px;height:42px;display:grid;place-items:center;flex:0 0 auto;border-radius:13px;background:linear-gradient(135deg,#1a8cd4,#19bfae);color:white!important;font-weight:900}.rp-profile-copy{min-width:0;display:flex;flex-direction:column}.rp-profile-copy strong{color:#fff!important}.rp-profile-copy span,.rp-profile-copy small{overflow:hidden;color:#a9c7d8!important;text-overflow:ellipsis;white-space:nowrap;font-size:.68rem}@keyframes rpAuthEnter{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}@media(max-width:760px){.rp-auth-hero{padding:2.25rem 1.2rem 2rem;border-radius:24px}.rp-auth-logo-mark{width:58px;height:58px}.stForm{padding:1.1rem!important}}
+/* Search scope selector */
+.scope-panel-title{margin:.9rem 0 .45rem;color:#e8f7f5;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+[data-testid="stSidebar"] [data-testid="stRadio"]>div{gap:.42rem}
+[data-testid="stSidebar"] [data-testid="stRadio"] label{padding:.6rem .7rem;border:1px solid rgba(109,203,195,.32);border-radius:10px;background:rgba(255,255,255,.055);color:#edf9f8!important}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked){border-color:#29d3c1;background:rgba(25,190,174,.2);box-shadow:0 0 0 1px rgba(41,211,193,.18)}
+[data-testid="stSidebar"] [data-testid="stRadio"] label p{color:#f3fbfa!important;font-weight:650!important}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] label p{color:#d9f1ee!important;font-weight:700!important}
+
+
+/* Sidebar identity: username only. */
+[data-testid="stSidebar"] .rp-sidebar-username {
+    display: block !important;
+    margin: 0.35rem 0 0.8rem !important;
+    padding: 0 !important;
+    color: #f4ffff !important;
+    -webkit-text-fill-color: #f4ffff !important;
+    font-family: inherit !important;
+    font-size: 1.05rem !important;
+    font-style: normal !important;
+    font-weight: 800 !important;
+    line-height: 1.3 !important;
+    letter-spacing: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+
+
+/* Preserve mixed Arabic/Latin numbers in API answers. */
+.assistant-message,.user-message,.rp-streaming-answer{
+  unicode-bidi:plaintext!important;
+  white-space:pre-wrap!important;
+  overflow-wrap:anywhere!important;
+  word-break:normal!important;
+}
+.assistant-message[dir="rtl"],.user-message[dir="rtl"],.rp-streaming-answer[dir="rtl"]{
+  direction:rtl!important;
+  text-align:right!important;
+}
+.assistant-message bdi,.user-message bdi,.rp-streaming-answer bdi{
+  unicode-bidi:isolate!important;
+  direction:inherit!important;
+}
+
+
+/* Model-authored Markdown inside assistant messages. */
+.rp-markdown-message {
+  unicode-bidi: plaintext !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.75 !important;
+}
+.rp-markdown-message[dir="rtl"] { direction: rtl !important; text-align: right !important; }
+.rp-markdown-message[dir="ltr"] { direction: ltr !important; text-align: left !important; }
+.rp-markdown-message > :first-child { margin-top: 0 !important; }
+.rp-markdown-message > :last-child { margin-bottom: 0 !important; }
+.rp-markdown-message p { margin: 0 0 .78rem !important; }
+.rp-markdown-message h1,
+.rp-markdown-message h2,
+.rp-markdown-message h3,
+.rp-markdown-message h4 {
+  color: #123a50 !important;
+  font-weight: 800 !important;
+  line-height: 1.35 !important;
+  margin: 1.05rem 0 .5rem !important;
+}
+.rp-markdown-message h1 { font-size: 1.35rem !important; }
+.rp-markdown-message h2 { font-size: 1.22rem !important; }
+.rp-markdown-message h3,
+.rp-markdown-message h4 { font-size: 1.08rem !important; }
+.rp-markdown-message ul,
+.rp-markdown-message ol {
+  margin: .35rem 0 .9rem !important;
+  padding-inline-start: 1.55rem !important;
+  padding-inline-end: 0 !important;
+}
+.rp-markdown-message[dir="rtl"] ul,
+.rp-markdown-message[dir="rtl"] ol {
+  padding-inline-start: 0 !important;
+  padding-inline-end: 1.55rem !important;
+}
+.rp-markdown-message li { margin: .34rem 0 !important; padding-inline-start: .2rem !important; }
+.rp-markdown-message strong { color: #0b5163 !important; font-weight: 800 !important; }
+.rp-markdown-message code {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  background: #e8f4f6 !important;
+  border-radius: 5px !important;
+  padding: .08rem .32rem !important;
+}
+.rp-markdown-message blockquote {
+  margin: .8rem 0 !important;
+  padding: .65rem .85rem !important;
+  border-inline-start: 4px solid #17b9b2 !important;
+  background: rgba(23,185,178,.08) !important;
+  border-radius: 8px !important;
+}

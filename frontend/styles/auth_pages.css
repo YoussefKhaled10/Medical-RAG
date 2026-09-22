@@ -1,5 +1,508 @@
-/*
-  auth_pages.css — legacy compatibility shim.
-  All real styles are now in auth.css (v5).
-  This file is kept to avoid import errors but intentionally empty of rules.
-*/
+/* RecoveryPath AI - Modern Pixel-Perfect Authentication Styles */
+.rp-auth-marker {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Page background and vertical scrolling support */
+html:has(.rp-auth-marker),
+body:has(.rp-auth-marker),
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) {
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    background: radial-gradient(circle at 76% 4%, rgba(19, 198, 190, 0.22), transparent 32%),
+                linear-gradient(135deg, #031725 0%, #075064 52%, #031725 100%) !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stMain"] {
+    min-height: 100vh !important;
+    height: auto !important;
+    padding: 24px 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stMainBlockContainer"] {
+    width: min(1140px, calc(100vw - 32px)) !important;
+    max-width: 1140px !important;
+    padding: 12px 16px !important;
+    margin: auto !important;
+    height: auto !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stMainBlockContainer"] > div > [data-testid="stVerticalBlock"] {
+    min-height: 0 !important;
+    height: auto !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    gap: 0 !important;
+}
+
+/* Unified Split Auth Card Shell */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] {
+    width: 100% !important;
+    height: auto !important;
+    min-height: fit-content !important;
+    gap: 0 !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(128, 226, 220, 0.3) !important;
+    border-radius: 24px !important;
+    background: linear-gradient(90deg, #031827 0%, #063445 51.5%, #ffffff 51.5%, #ffffff 100%) !important;
+    box-shadow: 0 24px 70px rgba(0, 10, 22, 0.45) !important;
+    position: relative !important;
+    isolation: isolate !important;
+}
+
+/* Column Base Styling */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+}
+
+/* ================================================================
+   LEFT COLUMN: Dark Brand Showcase Panel
+   ================================================================ */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex: 1.05 1 0 !important;
+    background: radial-gradient(circle at 82% 44%, rgba(18, 202, 193, 0.18), transparent 36%),
+                linear-gradient(155deg, #031827 0%, #063445 100%) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+}
+
+/* Propagate full height through all Streamlit parent wrapper divs */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child div,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stVerticalBlock"],
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="element-container"],
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stElementContainer"],
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child .stMarkdown,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child .stMarkdown > div,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stMarkdownContainer"] {
+    height: 100% !important;
+    min-height: 100% !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* Brand Panel Flex Container */
+.rp-brand-panel {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    padding: 36px 42px 30px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+
+/* Background Holographic 3D Pedestal Shield */
+.rp-brand-shield-wrap {
+    position: absolute !important;
+    right: 12px !important;
+    top: 50% !important;
+    transform: translateY(-46%) !important;
+    width: 210px !important;
+    height: 250px !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+    opacity: 0.95 !important;
+}
+.rp-brand-3d-shield {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Brand Header */
+.rp-brand-header {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    position: relative !important;
+    z-index: 2 !important;
+}
+.rp-brand-mark {
+    width: 40px !important;
+    height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.45)) !important;
+}
+.rp-brand-wordmark {
+    display: flex !important;
+    flex-direction: column !important;
+}
+.rp-brand-title {
+    color: #ffffff !important;
+    font-size: 23px !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.5px !important;
+    line-height: 1.1 !important;
+}
+.rp-brand-title span {
+    color: #22d3ee !important;
+}
+.rp-brand-subtitle {
+    color: #94a3b8 !important;
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    margin-top: 2px !important;
+    letter-spacing: 0.2px !important;
+}
+
+/* Center Copy */
+.rp-brand-copy {
+    position: relative !important;
+    z-index: 2 !important;
+    max-width: 320px !important;
+    margin: 24px 0 !important;
+    padding: 4px 0 !important;
+}
+.rp-brand-copy h2 {
+    color: #ffffff !important;
+    font-size: clamp(28px, 2.8vw, 38px) !important;
+    font-weight: 750 !important;
+    line-height: 1.12 !important;
+    letter-spacing: -0.7px !important;
+    margin: 0 0 10px !important;
+}
+.rp-brand-copy p {
+    color: #cbd5e1 !important;
+    font-size: 13.5px !important;
+    line-height: 1.55 !important;
+    margin: 0 !important;
+}
+
+/* Bottom Features List */
+.rp-brand-features {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 13px !important;
+    position: relative !important;
+    z-index: 2 !important;
+    margin-top: auto !important;
+}
+.rp-feature-item {
+    display: flex !important;
+    align-items: flex-start !important;
+    gap: 11px !important;
+}
+.rp-feature-icon {
+    width: 19px !important;
+    height: 19px !important;
+    color: #2dd4bf !important;
+    flex-shrink: 0 !important;
+    margin-top: 1px !important;
+    filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.4)) !important;
+}
+.rp-feature-item b {
+    display: block !important;
+    color: #2dd4bf !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    margin-bottom: 2px !important;
+}
+.rp-feature-item small {
+    display: block !important;
+    color: #94a3b8 !important;
+    font-size: 11.5px !important;
+    line-height: 1.35 !important;
+}
+
+
+/* ================================================================
+   RIGHT COLUMN: Crisp White Form Card
+   ================================================================ */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+    flex: 0.95 1 0 !important;
+    padding: clamp(22px, 3vh, 32px) clamp(28px, 3.5vw, 44px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child > div {
+    width: 100% !important;
+    max-width: 420px !important;
+    margin: auto !important;
+}
+
+/* Titles and Kickers */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-kicker {
+    color: #0d9488 !important;
+    font-size: 10.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.16em !important;
+    margin-bottom: 4px !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) h1.rp-auth-title {
+    color: #0f172a !important;
+    font-size: clamp(26px, 3.5vh, 34px) !important;
+    font-weight: 800 !important;
+    line-height: 1.12 !important;
+    letter-spacing: -0.5px !important;
+    margin: 0 0 6px !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-auth-subtitle {
+    color: #64748b !important;
+    font-size: 13.5px !important;
+    line-height: 1.45 !important;
+    margin: 0 0 14px !important;
+}
+
+/* Form Container */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stForm"] {
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stForm"] > div {
+    gap: clamp(5px, 0.9vh, 8px) !important;
+}
+
+/* Form Labels: Crisp Dark Slate */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] {
+    margin: 0 !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] label,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] label p,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] label span {
+    color: #0f172a !important;
+    font-size: 12px !important;
+    font-weight: 650 !important;
+    margin: 0 0 2px !important;
+    letter-spacing: -0.1px !important;
+}
+
+/* Input Fields - Dark Typed Text and Crisp Border */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] input {
+    height: 39px !important;
+    min-height: 39px !important;
+    padding: 0 12px !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 9px !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    font-size: 13.5px !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] input:focus {
+    border-color: #14b8a6 !important;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18) !important;
+}
+
+/* Input Placeholders on White Background */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) input::placeholder,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) input::-webkit-input-placeholder,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) input::-moz-placeholder,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) input:-ms-input-placeholder {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+/* Password eye button inside text input */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] button {
+    color: #64748b !important;
+    background: transparent !important;
+    border: 0 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stTextInput"] button svg {
+    fill: #64748b !important;
+    stroke: #64748b !important;
+}
+
+/* Checkbox and Label Colors on White Background */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] {
+    margin: 2px 0 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] label,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] label p,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] label span,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] div {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    font-size: 12.5px !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] span[role="checkbox"] {
+    border-color: #94a3b8 !important;
+    background-color: #ffffff !important;
+    border-radius: 4px !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stCheckbox"] span[role="checkbox"][aria-checked="true"] {
+    background-color: #0d9488 !important;
+    border-color: #0d9488 !important;
+}
+
+/* Primary Submit Button */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stFormSubmitButton"] button {
+    height: 41px !important;
+    min-height: 41px !important;
+    width: 100% !important;
+    margin-top: 4px !important;
+    border: 0 !important;
+    border-radius: 9px !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    background: linear-gradient(100deg, #0d9488 0%, #14b8a6 100%) !important;
+    box-shadow: 0 8px 18px rgba(13, 148, 136, 0.25) !important;
+    font-size: 14px !important;
+    font-weight: 750 !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stFormSubmitButton"] button:hover {
+    box-shadow: 0 10px 22px rgba(13, 148, 136, 0.35) !important;
+    filter: brightness(1.05) !important;
+}
+
+/* Secondary Switch Text and Action Buttons */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-switch {
+    color: #64748b !important;
+    text-align: center !important;
+    font-size: 12.5px !important;
+    margin: 10px 0 4px !important;
+}
+
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-auth-divider {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin: 8px 0 6px !important;
+    color: #94a3b8 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-auth-divider::before,
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) .rp-auth-divider::after {
+    content: "" !important;
+    height: 1px !important;
+    flex: 1 !important;
+    background: #e2e8f0 !important;
+}
+
+/* Secondary Buttons */
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) button[kind="secondary"] {
+    height: 38px !important;
+    min-height: 38px !important;
+    width: 100% !important;
+    color: #0b4052 !important;
+    -webkit-text-fill-color: #0b4052 !important;
+    background: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 9px !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-marker) button[kind="secondary"]:hover {
+    background: #f8fafc !important;
+    border-color: #94a3b8 !important;
+    color: #042335 !important;
+    -webkit-text-fill-color: #042335 !important;
+}
+
+/* Login Page Secondary Buttons: Dark Navy Style */
+[data-testid="stAppViewContainer"]:has(.rp-auth-login) button[kind="secondary"] {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border-color: #0b4052 !important;
+    background: #0b4052 !important;
+    font-weight: 700 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-login) button[kind="secondary"]:hover {
+    background: #0f566e !important;
+    border-color: #0f566e !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Register Page Secondary Button */
+[data-testid="stAppViewContainer"]:has(.rp-auth-register) button[kind="secondary"] {
+    color: #0b4052 !important;
+    -webkit-text-fill-color: #0b4052 !important;
+    background: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+}
+[data-testid="stAppViewContainer"]:has(.rp-auth-register) button[kind="secondary"]:hover {
+    background: #f8fafc !important;
+    color: #042335 !important;
+    -webkit-text-fill-color: #042335 !important;
+}
+
+/* OTP Page Icon */
+.rp-otp-icon {
+    width: 52px !important;
+    height: 52px !important;
+    display: grid !important;
+    place-items: center !important;
+    border-radius: 50% !important;
+    background: #e4f7f5 !important;
+    color: #079b99 !important;
+    font-size: 22px !important;
+    margin-bottom: 10px !important;
+}
+
+/* Alerts */
+.stAlert {
+    border-radius: 9px !important;
+    font-size: 12.5px !important;
+}
+
+/* Responsive adjustments for smaller screens / mobile */
+@media (max-width: 900px) {
+    [data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stMainBlockContainer"] {
+        width: min(540px, calc(100vw - 20px)) !important;
+        margin: 16px auto !important;
+    }
+    [data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] {
+        display: block !important;
+        border-radius: 20px !important;
+        background: #ffffff !important;
+    }
+    [data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+        display: none !important;
+    }
+    [data-testid="stAppViewContainer"]:has(.rp-auth-marker) [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+        padding: 30px 20px !important;
+    }
+}

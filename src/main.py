@@ -16,6 +16,7 @@ from src.routes import (
     ingestion_router,
     rag_router,
     retrieval_pipeline_router,
+    conversations_router
 )
 
 
@@ -100,4 +101,4 @@ app.include_router(export_router)
 app.include_router(hybrid_retrieval_router)
 app.include_router(retrieval_pipeline_router)
 app.include_router(rag_router)
-
+app.include_router(conversations_router)

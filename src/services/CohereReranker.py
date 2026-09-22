@@ -26,9 +26,14 @@ class CohereReranker:
 
     @staticmethod
     def _document_text(candidate: dict[str, Any]) -> str:
+        document = str(candidate.get("document_name") or "").strip()
         section = str(candidate.get("section_title") or "").strip()
+        page = candidate.get("page_number")
         text = str(candidate.get("text") or "").strip()
-        return f"Section: {section}\nContent: {text}".strip()
+        return (
+            f"Document: {document}\nSection: {section}\n"
+            f"Page: {page}\nContent: {text}"
+        ).strip()
 
     async def rerank(
         self,

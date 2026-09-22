@@ -31,12 +31,12 @@ class LoginRequest(BaseModel):
 class RefreshTokenRequest(BaseModel): refresh_token:str
 class LogoutRequest(BaseModel): refresh_token:str|None=None
 class UserProfileResponse(BaseModel):
- id:int; email:str; username:str; full_name:str|None; is_verified:bool; private_project_id:int|None; vault_name:str|None=None; document_count:int=0
+ id:int; email:str; username:str; full_name:str|None; is_verified:bool; is_admin:bool=False; private_project_id:int|None; vault_name:str|None=None; document_count:int=0
 class AuthTokenResponse(BaseModel):
  access_token:str; refresh_token:str; token_type:str="bearer"; user:UserProfileResponse
 async def profile(session,user):
  assets=await AssetModel.list_by_project(session,user.private_project_id) if user.private_project_id else []
- return UserProfileResponse(id=user.id,email=user.email,username=user.username,full_name=user.full_name,is_verified=user.is_verified,private_project_id=user.private_project_id,vault_name=user.private_project.name if user.private_project else None,document_count=len(assets))
+ return UserProfileResponse(id=user.id,email=user.email,username=user.username,full_name=user.full_name,is_verified=user.is_verified,is_admin=bool(getattr(user,"is_admin",False)),private_project_id=user.private_project_id,vault_name=user.private_project.name if user.private_project else None,document_count=len(assets))
 async def issue(session,user):
  access=create_access_token({"sub":str(user.id),"type":"access"}); refresh,expires=create_refresh_token(user.id)
  await UserModel.store_refresh_token(session,user.id,refresh,expires,commit=False); await session.commit()

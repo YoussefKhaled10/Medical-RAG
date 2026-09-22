@@ -48,6 +48,7 @@ class RAGService:
         retrieval_retry_service: RetrievalRetryService | None = None,
         unsupported_claim_pruner: UnsupportedClaimPruner | None = None,
         supported_answer_rebuilder: SupportedAnswerRebuilder | None = None,
+        managed_providers: tuple[GenerationInterface, ...] | None = None,
     ) -> None:
         self._retrieval_pipeline = retrieval_pipeline
         self._context_builder = context_builder
@@ -71,6 +72,10 @@ class RAGService:
             raise ValueError("query_understanding_service is required")
         self._query_understanding = query_understanding_service
         self._retrieval_retry_service = retrieval_retry_service
+        self._managed_providers = managed_providers or (
+            generation_provider,
+            claim_judge_provider,
+        )
 
     @staticmethod
     def _normalize_question(question: str) -> str:
@@ -156,6 +161,27 @@ class RAGService:
         return round((end - start) * 1000, 2)
 
     @staticmethod
+    def _adaptive_formatting_instruction() -> str:
+        """Require content-aware Markdown formatting from the answer model."""
+        return (
+            "ADAPTIVE RESPONSE FORMATTING:\n"
+            "Format the final answer according to its actual content, not with "
+            "one fixed template. If the answer is short and direct, use one or "
+            "two concise paragraphs without unnecessary headings. If the answer "
+            "contains multiple steps, phases, options, comparisons, warning "
+            "signs, or actions, organize it with short descriptive Markdown "
+            "headings and bullet points or numbered steps. Keep each bullet "
+            "focused on one idea and keep paragraphs short. Put urgent or "
+            "important safety information before routine details. Put a general "
+            "medical disclaimer in a separate final paragraph only when required "
+            "by the safety policy. Do not return a dense wall of text. Do not use "
+            "tables unless the user requests a comparison and a table is clearly "
+            "the most readable format. Do not create empty or unsupported "
+            "sections. Keep every citation attached to the factual sentence or "
+            "bullet it supports. Use valid Markdown only and do not output HTML."
+        )
+
+    @staticmethod
     def _refusal_sentences() -> tuple[str, ...]:
         """Known refusal text excluded from factual claim extraction."""
         questions = {
@@ -176,16 +202,6 @@ class RAGService:
             for question in questions.values()
             for reason in reasons
         )
-
-    @staticmethod
-    def _social_fallback(language: str) -> str:
-        """Use only when the intent provider fails to return social text."""
-        messages = {
-            "ar": "تمام، أنا موجود لو احتجتني.",
-            "fr": "D'accord, je reste disponible si vous en avez besoin.",
-            "en": "All right, I'm here if you need me.",
-        }
-        return messages.get(language, messages["en"])
 
     @staticmethod
     def _social_output(
@@ -294,67 +310,83 @@ class RAGService:
         }
 
     @staticmethod
-    def _remove_dosage_details(answer: str) -> str:
-        """Remove exact medical quantities and schedules from a final answer."""
-        text = str(answer or "").strip()
-        if not text:
-            return text
-        unit = r"(?:mg|mcg|µg|g|kg|ml|mL|iu|IU|مغ|مجم|ميكروغرام|غرام|جرام|مل|لتر)"
-        number = r"(?:\d+(?:[.,]\d+)?)"
-        range_part = rf"{number}(?:\s*(?:-|–|—|to|إلى)\s*{number})?"
-        dosage = rf"{range_part}\s*{unit}"
-        text = re.sub(rf"\(\s*{dosage}(?:\s+[^)]{{0,55}})?\)", "", text, flags=re.IGNORECASE)
-        text = re.sub(dosage, "", text, flags=re.IGNORECASE)
-        patterns = (
-            r"\b(?:once|twice|three|four)\s+(?:a|per)\s+(?:day|week|month)\b",
-            r"\b\d+\s*(?:times?|x)\s*(?:a|per)\s*(?:day|week|month)\b",
-            r"\bevery\s+\d+\s*(?:hours?|days?|weeks?|months?)\b",
-            r"\bfor\s+\d+(?:\s*(?:-|–|—|to)\s*\d+)?\s*(?:days?|weeks?|months?|years?)\b",
-            r"(?:مرة|مرتين|ثلاث\s+مرات|أربع\s+مرات)\s+(?:يوميًا|يومياً|في\s+اليوم|أسبوعيًا|أسبوعياً)",
-            r"كل\s+\d+\s*(?:ساعات?|أيام?|أسابيع|أشهر)",
-            r"لمدة\s+\d+(?:\s*(?:-|–|—|إلى)\s*\d+)?\s*(?:أيام?|أسابيع|أشهر|سنوات)",
-            r"\b(?:daily|weekly|monthly)\b",
-            r"(?:يوميًا|يومياً|أسبوعيًا|أسبوعياً|شهريًا|شهرياً)",
-        )
-        for pattern in patterns:
-            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\(\s*\)", "", text)
-        text = re.sub(r"\s+([،,؛;:.])", r"\1", text)
-        text = re.sub(r"[ \t]{2,}", " ", text)
-        text = re.sub(r"\n[ \t]+", "\n", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    @staticmethod
     def _medical_boundary(language: str) -> str:
         boundaries = {
-            "ar": "هذه معلومات عامة مستندة إلى المصادر المتاحة، وليست وصفة أو جرعة مناسبة لحالة فردية. يُفضّل استشارة طبيب أو صيدلي مؤهل قبل بدء أي دواء أو مكمل، أو إيقافه، أو تغييره.",
-            "en": "This is general information from the available sources, not an individualized prescription or dosage. Consult a qualified doctor or pharmacist before starting, stopping, or changing any medicine or supplement.",
-            "fr": "Ces informations générales proviennent des sources disponibles et ne constituent pas une prescription ni une posologie personnalisée. Consultez un médecin ou un pharmacien qualifié avant de commencer, d’arrêter ou de modifier un médicament ou un complément.",
+            "ar": (
+                "هذه معلومات عامة مستندة إلى المصادر المتاحة، وليست وصفة "
+                "أو جرعة مناسبة لحالة فردية. يُفضّل استشارة طبيب أو صيدلي "
+                "مؤهل قبل بدء أي دواء أو مكمل، أو إيقافه، أو تغيير جرعته."
+            ),
+            "en": (
+                "This is general information from the available sources, "
+                "not an individualized prescription or dosage. Consult a "
+                "qualified doctor or pharmacist before starting, stopping, "
+                "or changing any medicine or supplement."
+            ),
+            "fr": (
+                "Ces informations générales proviennent des sources disponibles "
+                "et ne constituent pas une prescription ni une posologie "
+                "personnalisée. Consultez un médecin ou un pharmacien qualifié "
+                "avant de commencer, d’arrêter ou de modifier un médicament "
+                "ou un complément."
+            ),
         }
         return boundaries.get(language, boundaries["en"])
 
     @staticmethod
     def _requires_medical_boundary(answer: str) -> bool:
+        """Add the boundary only when the final answer names a treatment product."""
         value = str(answer or "").casefold()
         triggers = (
-            "دواء", "دوائي", "علاج", "فيتامين", "مكمل", "ثيامين", "إلكتروليت",
-            "مغنيسيوم", "بوتاسيوم", "فوسفات", "medicine", "medication", "treatment",
-            "vitamin", "supplement", "thiamine", "electrolyte", "pharmacological",
-            "naltrexone", "acamprosate", "disulfiram", "nalmefene", "نالتريكسون",
-            "أكامبروسيت", "ديسلفيرام", "نالميفين",
+            "دواء", "أدوية", "medicine", "medication", "medications",
+            "فيتامين", "vitamin", "vitamins", "مكمل", "مكملات",
+            "supplement", "supplements", "ثيامين", "thiamine",
+            "مغنيسيوم", "magnesium", "بوتاسيوم", "potassium",
+            "فوسفات", "phosphate", "إلكتروليت", "electrolyte",
+            "نالتريكسون", "naltrexone", "أكامبروس", "acamprosate",
+            "ديسلفيرام", "disulfiram", "نالميفين", "nalmefene",
+            "جابابنتين", "gabapentin", "باكلوفين", "baclofen",
+            "توبيراميت", "topiramate", "بنزوديازيبين", "benzodiazepine",
+            "ديازيبام", "diazepam", "لورازيبام", "lorazepam",
+            "كلورديازيبوكسيد", "chlordiazepoxide", "أوكسازيبام", "oxazepam",
         )
-        return any(item in value for item in triggers)
+        return any(trigger in value for trigger in triggers)
+
+    @staticmethod
+    def _remove_dosage_details(answer: str) -> str:
+        """Remove treatment quantities despite Unicode spaces or dash variants."""
+        text = str(answer or "").replace(" ", " ").replace(" ", " ").replace(" ", " ")
+        num = r"[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?"
+        dash = r"(?:-|–|—|‑|إلى|الى|to)"
+        unit = r"(?:mg|mcg|µg|g|kg|ml|mL|L|iu|IU|مغ|مجم|ملغ|غ|كغ|مل|لتر|وحدة(?: دولية)?)"
+        dose = rf"{num}(?:\s*{dash}\s*{num})?\s*{unit}"
+        text = re.sub(rf"\(\s*{dose}[^)]*\)", "", text, flags=re.I)
+        text = re.sub(dose, "", text, flags=re.I)
+        schedules = (
+            rf"(?:لمدة|for)\s+{num}(?:\s*{dash}\s*{num})?\s*(?:أيام?|أسابيع?|أشهر|سنوات?|days?|weeks?|months?|years?)",
+            rf"{num}(?:\s*{dash}\s*{num})?\s*(?:أيام?|أسابيع?|أشهر|سنوات?|days?|weeks?|months?|years?)",
+            rf"{num}\s*(?:مرات?|times?)\s*(?:يومي(?:ا|ًا|اً)|أسبوعي(?:ا|ًا|اً)|شهري(?:ا|ًا|اً)|a day|per day|a week|per week)",
+            rf"(?:مرة|مرتين|ثلاث مرات|أربع مرات|once|twice)\s*(?:يومي(?:ا|ًا|اً)|في اليوم|أسبوعي(?:ا|ًا|اً)|a day|daily|weekly)",
+            rf"(?:كل|every)\s+{num}\s*(?:ساعات?|أيام?|أسابيع?|أشهر|hours?|days?|weeks?|months?)",
+            rf"{num}\s*(?:دقيقة|دقائق|ساعة|ساعات|minutes?|hours?)\s*(?:أسبوعي(?:ا|ًا|اً)|في الأسبوع|weekly|per week)",
+        )
+        for pattern in schedules:
+            text = re.sub(pattern, "", text, flags=re.I)
+        text = re.sub(r"\(\s*\)", "", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\s+([،,؛;:.])", r"\1", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     @classmethod
-    def _prepare_final_medical_answer(cls, answer: str, language: str) -> str:
-        clean = cls._remove_dosage_details(answer)
-        if not clean or not cls._requires_medical_boundary(clean):
-            return clean
+    def _append_medical_boundary(cls, answer: str, language: str) -> str:
+        clean_answer = str(answer or "").strip()
+        if not clean_answer or not cls._requires_medical_boundary(clean_answer):
+            return clean_answer
         boundary = cls._medical_boundary(language)
-        if boundary in clean:
-            return clean
-        return f"{clean}\n\n{boundary}"
+        if boundary in clean_answer:
+            return clean_answer
+        return f"{clean_answer}\n\n{boundary}"
 
     @staticmethod
     def _post_generation_refusal(language: str) -> str:
@@ -407,7 +439,13 @@ Omit every detail not explicitly stated in the cited source.
 A short answer containing one supported fact is better than a complete refusal.
 """.strip()
         generation = await self._generation_provider.generate(
-            system_prompt=prompt.system_prompt + "\n\n" + recovery_rules,
+            system_prompt=(
+                prompt.system_prompt
+                + "\n\n"
+                + self._adaptive_formatting_instruction()
+                + "\n\n"
+                + recovery_rules
+            ),
             user_prompt=prompt.user_prompt,
             temperature=0.0,
             max_output_tokens=min(max_output_tokens, 700),
@@ -450,6 +488,7 @@ A short answer containing one supported fact is better than a complete refusal.
         project_id: int | list[int] | tuple[int, ...] | None = None,
         asset_id: int | None = None,
         retrieval_limit: int = 5,
+        retrieval_mode: str = "hybrid",
         temperature: float = 0.0,
         max_output_tokens: int = 1200,
         conversation_history: list[dict[str, str]] | None = None,
@@ -483,6 +522,7 @@ A short answer containing one supported fact is better than a complete refusal.
         understood_query = await self._query_understanding.understand(
             normalized_question,
             conversation_history=cleaned_history,
+            response_language=response_language,
         )
         refusal_sentences = self._refusal_sentences()
 
@@ -491,10 +531,11 @@ A short answer containing one supported fact is better than a complete refusal.
         # clarification_message, so no retrieval or second generation call
         # is needed here.
         if understood_query.intent == "social":
-            social_answer = (
-                understood_query.clarification_message
-                or self._social_fallback(response_language)
-            )
+            social_answer = understood_query.direct_response
+            if not social_answer:
+                raise RuntimeError(
+                    "Intent model returned social without direct_response"
+                )
             social_finished = perf_counter()
             return self._social_output(
                 question=normalized_question,
@@ -610,16 +651,22 @@ A short answer containing one supported fact is better than a complete refusal.
             )
 
         retrieval_started = perf_counter()
+        semantic_query = understood_query.semantic_query
+        keyword_hints = list(understood_query.keyword_hints)
+        if understood_query.intent == "support_service_lookup":
+            semantic_query = f"{semantic_query} official addiction hotline treatment service government خط ساخن علاج إدمان"
+            keyword_hints.extend(("official addiction hotline", "treatment service", "خط ساخن", "علاج إدمان"))
         retrieval = await self._retrieval_pipeline.search(
             session=session,
-            query=understood_query.semantic_query,
+            query=understood_query.corrected_question,
             limit=retrieval_limit,
             project_id=project_id,
             asset_id=asset_id,
-            use_deduplication=True,
+            use_deduplication=False,
             use_reranking=True,
-            semantic_query=understood_query.semantic_query,
-            keyword_hints=understood_query.keyword_hints,
+            semantic_query=semantic_query,
+            keyword_hints=keyword_hints,
+            search_type=retrieval_mode,
         )
         retrieval_finished = perf_counter()
 
@@ -660,14 +707,15 @@ A short answer containing one supported fact is better than a complete refusal.
 
                 retry_retrieval = await self._retrieval_pipeline.search(
                     session=session,
-                    query=retry_q.semantic_query,
+                    query=understood_query.corrected_question,
                     limit=retrieval_limit,
                     project_id=project_id,
                     asset_id=asset_id,
-                    use_deduplication=True,
+                    use_deduplication=False,
                     use_reranking=True,
                     semantic_query=retry_q.semantic_query,
-                    keyword_hints=retry_q.keyword_hints,  # fresh start — no hints to avoid re-narrowing
+                    keyword_hints=retry_q.keyword_hints,  # fresh start
+                    search_type=retrieval_mode,
                 )
                 retry_relevance = self._relevance_gate.evaluate_as_dict(
                     retry_retrieval["results"]
@@ -796,6 +844,8 @@ A short answer containing one supported fact is better than a complete refusal.
         generation = await self._generation_provider.generate(
             system_prompt=(
                 prompt.system_prompt
+                + "\n\n"
+                + self._adaptive_formatting_instruction()
                 + "\n\nEVIDENCE STRENGTH LANGUAGE POLICY:\n"
                 + uncertainty_instruction
             ),
@@ -807,8 +857,8 @@ A short answer containing one supported fact is better than a complete refusal.
         generation_finished = perf_counter()
 
 
-        raw_generated_answer = self._normalize_source_citations(
-            generation.text.strip()
+        raw_generated_answer = self._remove_dosage_details(
+            self._normalize_source_citations(generation.text.strip())
         )
         refusal_category, clean_generated_answer = (
             RefusalPolicy.parse_marked_answer(raw_generated_answer)
@@ -1079,7 +1129,7 @@ A short answer containing one supported fact is better than a complete refusal.
             returned_sources = []
             returned_evidence = []
         else:
-            answer = self._prepare_final_medical_answer(
+            answer = self._append_medical_boundary(
                 generated_answer,
                 response_language,
             )
@@ -1260,18 +1310,20 @@ A short answer containing one supported fact is better than a complete refusal.
         total_started = perf_counter()
         normalized_question = self._normalize_question(question)
         cleaned_history = self._clean_conversation_history(conversation_history)
+        response_language = LanguageDetector.detect(normalized_question).code
         understood_query = await self._query_understanding.understand(
             normalized_question,
             conversation_history=cleaned_history,
+            response_language=response_language,
         )
-        response_language = LanguageDetector.detect(normalized_question).code
         refusal_sentences = self._refusal_sentences()
 
         if understood_query.intent == "social":
-            answer = (
-                understood_query.clarification_message
-                or self._social_fallback(response_language)
-            )
+            answer = understood_query.direct_response
+            if not answer:
+                raise RuntimeError(
+                    "Intent model returned social without direct_response"
+                )
             return self._social_output(
                 question=normalized_question,
                 answer=answer,
@@ -1548,6 +1600,8 @@ A short answer containing one supported fact is better than a complete refusal.
         generation = await self._generation_provider.generate(
             system_prompt=(
                 prompt.system_prompt
+                + "\n\n"
+                + self._adaptive_formatting_instruction()
                 + "\n\nEVIDENCE STRENGTH LANGUAGE POLICY:\n"
                 + uncertainty_instruction
             ),
@@ -1559,7 +1613,9 @@ A short answer containing one supported fact is better than a complete refusal.
         generation_finished = perf_counter()
 
 
-        raw_answer = self._normalize_source_citations(generation.text.strip())
+        raw_answer = self._remove_dosage_details(
+            self._normalize_source_citations(generation.text.strip())
+        )
         refusal_category, cleaned_answer = RefusalPolicy.parse_marked_answer(raw_answer)
         generation_refused = refusal_category is not None
         if generation_refused:
@@ -1775,7 +1831,7 @@ A short answer containing one supported fact is better than a complete refusal.
             returned_sources = []
             returned_evidence = []
         else:
-            answer = self._prepare_final_medical_answer(
+            answer = self._append_medical_boundary(
                 generated_answer,
                 response_language,
             )
@@ -1829,8 +1885,12 @@ A short answer containing one supported fact is better than a complete refusal.
 
     async def close(self) -> None:
         await self._retrieval_pipeline.close()
-        await self._generation_provider.close()
-        if self._claim_judge_provider is not self._generation_provider:
-            await self._claim_judge_provider.close()
+        closed: set[int] = set()
+        for provider in self._managed_providers:
+            provider_id = id(provider)
+            if provider_id in closed:
+                continue
+            closed.add(provider_id)
+            await provider.close()
 
     

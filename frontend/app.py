@@ -138,10 +138,6 @@ def initialize_state() -> None:
     defaults = {
         "messages": [],
         "latest_response": None,
-        "project_id": None,
-        "asset_id": None,
-        "search_scope": "all_projects",
-        "active_query_mode": "global_kb",
         "ephemeral_uploaded_doc": None,
         "user": None,
         "auth_token": None,
@@ -152,6 +148,7 @@ def initialize_state() -> None:
         "developer_mode": False,
         "current_conv_id": None,
         "conversations": {},
+        "conversations_synced": False,
         "pending_question": None,
     }
     for key, value in defaults.items():
@@ -203,14 +200,52 @@ def load_conversation(conv_id: str) -> None:
     item = st.session_state.conversations.get(conv_id)
     if not item:
         return
-    st.session_state.messages = list(item.get("messages") or [])
+    
+    # If signed in, we need to fetch messages from DB
+    if st.session_state.get("auth_token") and str(conv_id).isdigit():
+        import os
+        api_url = str(os.getenv("BACKEND_API_URL")).rstrip("/") if os.getenv("BACKEND_API_URL") else "http://127.0.0.1:8000"
+        temp_client = APIClient(base_url=api_url, auth_token=st.session_state.get("auth_token"))
+        try:
+            msg_data = temp_client.get_messages(int(conv_id), limit=100)
+            # Backend returns items in descending order (newest first). Let's reverse them for UI.
+            # Wait, backend list_messages might return newest first, we'll sort by created_at.
+            db_msgs = msg_data.get("items", [])
+            db_msgs = sorted(db_msgs, key=lambda x: x.get("created_at", ""))
+            
+            # Format to match frontend structure
+            formatted_msgs = []
+            for m in db_msgs:
+                formatted_msgs.append({
+                    "role": m["role"],
+                    "content": m["content"],
+                    "sources": m.get("sources", []),
+                    "metadata": m.get("metadata", {})
+                })
+            st.session_state.messages = formatted_msgs
+        except Exception:
+            st.session_state.messages = list(item.get("messages") or [])
+    else:
+        st.session_state.messages = list(item.get("messages") or [])
+        
     st.session_state.latest_response = item.get("latest_response")
     st.session_state.current_conv_id = conv_id
     st.session_state.pending_question = None
 
 
 def delete_conversation(conv_id: str) -> None:
+    if st.session_state.get("auth_token") and str(conv_id).isdigit():
+        import os
+        api_url = str(os.getenv("BACKEND_API_URL")).rstrip("/") if os.getenv("BACKEND_API_URL") else "http://127.0.0.1:8000"
+        temp_client = APIClient(base_url=api_url, auth_token=st.session_state.get("auth_token"))
+        try:
+            temp_client.delete_conversation(int(conv_id))
+        except Exception:
+            pass
     st.session_state.conversations.pop(conv_id, None)
+    if st.session_state.current_conv_id == conv_id:
+        st.session_state.current_conv_id = None
+        st.session_state.messages = []
     if st.session_state.current_conv_id == conv_id:
         new_conversation()
     save_history()
@@ -242,193 +277,97 @@ def queue_question(question: str) -> None:
 
 
 def build_conversation_history() -> list[dict[str, str]]:
-    """Return recent turns before the latest queued user message."""
+    """Return up to the latest 4 user and 4 assistant messages."""
     messages = st.session_state.get("messages", [])
-    if messages and messages[-1].get("role") == "user":
+    if messages and str(messages[-1].get("role") or "").lower() == "user":
         candidates = messages[:-1]
     else:
         candidates = messages
 
-    history: list[dict[str, str]] = []
-    for message in candidates[-6:]:
+    selected_reversed: list[dict[str, str]] = []
+    role_counts = {"user": 0, "assistant": 0}
+    for message in reversed(candidates):
         role = str(message.get("role") or "").strip().lower()
-        content = " ".join(str(message.get("content") or "").split()).strip()
-        if role not in {"user", "assistant"} or not content:
+        if role not in role_counts or role_counts[role] >= 4:
             continue
-        history.append({"role": role, "content": content[:1500]})
-    return history
+        content = " ".join(str(message.get("content") or "").split()).strip()
+        if not content or content.lower().startswith("request failed:"):
+            continue
+        selected_reversed.append({"role": role, "content": content[:1500]})
+        role_counts[role] += 1
+        if role_counts["user"] == 4 and role_counts["assistant"] == 4:
+            break
+    return list(reversed(selected_reversed))
 
 
 def call_rag_api(client: APIClient, question: str) -> dict[str, Any]:
-    active_mode = st.session_state.get("active_query_mode", "global_kb")
+    """Answer from System Knowledge only, unless a temporary file is uploaded."""
     ephemeral_doc = st.session_state.get("ephemeral_uploaded_doc")
 
-    # User mode automatically searches the trusted global knowledge base
-    # together with the temporary uploaded document. The document remains
-    # session-only and is never written to the database.
-    if ephemeral_doc is not None and not st.session_state.get("developer_mode", False):
-        return client.ask_document(
-            question=question,
-            file_bytes=ephemeral_doc["bytes"],
-            file_name=ephemeral_doc["name"],
-            generation_provider=st.session_state.generation_provider,
-            temperature=0.0,
-            max_output_tokens=1200,
-            conversation_history=build_conversation_history(),
-            include_global_knowledge=True,
-        )
-
-    # Developer mode keeps the previous explicit uploaded-document-only mode.
-    if active_mode == "uploaded_doc" and ephemeral_doc is not None:
-        return client.ask_document(
-            question=question,
-            file_bytes=ephemeral_doc["bytes"],
-            file_name=ephemeral_doc["name"],
-            generation_provider=st.session_state.generation_provider,
-            temperature=0.0,
-            max_output_tokens=1200,
-            conversation_history=build_conversation_history(),
-            include_global_knowledge=False,
-        )
-
-    search_scope = st.session_state.get("search_scope", "all_projects")
-    project_id = st.session_state.get("project_id")
-    asset_id = st.session_state.get("asset_id")
-
-    if search_scope == "all_projects":
-        selected_project_id = None
-        selected_asset_id = None
-    elif search_scope == "project":
-        selected_project_id = int(project_id) if project_id is not None else None
-        selected_asset_id = None
-    else:
-        selected_project_id = int(project_id) if project_id is not None else None
-        selected_asset_id = int(asset_id) if asset_id is not None else None
-
-    kwargs = {
-        "question": question,
-        "conversation_history": build_conversation_history(),
-        "project_id": selected_project_id,
-        "asset_id": selected_asset_id,
-        "retrieval_limit": 5,
-        "generation_provider": st.session_state.generation_provider,
-        "temperature": 0.0,
-        "max_output_tokens": 1200,
-        "timeout_seconds": 300.0,
-    }
-    for name in ("ask_rag", "ask_question", "ask"):
-        method = getattr(client, name, None)
-        if not callable(method):
-            continue
-        signature = inspect.signature(method)
-        accepted = {
-            key: value
-            for key, value in kwargs.items()
-            if key in signature.parameters
-        }
-        return method(**accepted)
-    raise AttributeError(
-        "APIClient must expose ask_rag(), ask_question(), or ask()."
-    )
-
-
-def render_scope_selector() -> None:
-    if not st.session_state.get("developer_mode", False):
-        st.session_state.active_query_mode = "combined" if (
-            st.session_state.get("ephemeral_uploaded_doc") is not None
-        ) else "global_kb"
-        return
-
-    ephemeral_doc = st.session_state.get("ephemeral_uploaded_doc")
+    # A temporary upload is queried directly and remains session-only.
     if ephemeral_doc is not None:
-        doc_name = ephemeral_doc.get("name", "Document")
-        options = [
-            "🌐 الموسوعة الطبية الشاملة (جميع المراجع المعتمدة)",
-            f"📄 الملف المرفوع فقط ({doc_name})",
-        ]
-        current = st.session_state.get("active_query_mode", "uploaded_doc")
-        idx = 1 if current == "uploaded_doc" else 0
-        selected = st.radio(
-            "نطاق البحث والإجابة:",
-            options,
-            index=idx,
-            horizontal=True,
-            key="scope_selector_radio",
+        return client.ask_document(
+            question=question,
+            file_bytes=ephemeral_doc["bytes"],
+            file_name=ephemeral_doc["name"],
+            generation_provider=st.session_state.generation_provider,
+            temperature=0.0,
+            max_output_tokens=1200,
+            conversation_history=build_conversation_history(),
         )
-        st.session_state.active_query_mode = "uploaded_doc" if selected == options[1] else "global_kb"
-    else:
-        st.session_state.active_query_mode = "global_kb"
+
+    # Every normal question uses System Knowledge automatically.
+    if st.session_state.get("auth_token"):
+        conv_id_str = st.session_state.get("current_conv_id")
+        if not conv_id_str or not str(conv_id_str).isdigit():
+            try:
+                new_conv = client.create_conversation(
+                    title=question[:50] or "New Conversation"
+                )
+                conv_id = int(new_conv["id"])
+                st.session_state.current_conv_id = str(conv_id)
+                st.session_state.conversations[str(conv_id)] = new_conv
+            except Exception as exc:
+                st.error(f"Failed to create conversation: {exc}")
+                raise
+        else:
+            conv_id = int(conv_id_str)
+
+        request_id = str(uuid.uuid4())
+        try:
+            result = client.send_message_to_conversation(
+                conversation_id=conv_id,
+                question=question,
+                client_request_id=request_id,
+                generation_provider=st.session_state.generation_provider,
+                retrieval_limit=10,
+                temperature=0.0,
+                max_output_tokens=1200,
+            )
+            st.session_state.conversations[str(conv_id)] = result["conversation"]
+            return result["rag"]
+        except Exception as exc:
+            st.error(f"Failed to send message: {exc}")
+            raise
+
+    return client.ask_rag(
+        question=question,
+        project_id=2,
+        search_scope="system",
+        conversation_history=build_conversation_history(),
+        retrieval_limit=10,
+        retrieval_mode="hybrid",
+        generation_provider=st.session_state.generation_provider,
+        temperature=0.0,
+        max_output_tokens=1200,
+        timeout_seconds=300.0,
+    )
 
 
 def render_developer_settings() -> None:
     if not st.session_state.developer_mode:
         return
-
     with st.expander("Developer settings", expanded=False):
-        scope_names = [
-            "All projects",
-            "Single project",
-            "Single document",
-        ]
-        scope_indexes = {
-            "all_projects": 0,
-            "project": 1,
-            "document": 2,
-        }
-        current_scope = st.session_state.get(
-            "search_scope",
-            "all_projects",
-        )
-        selected_scope = st.radio(
-            "Search scope",
-            scope_names,
-            index=scope_indexes.get(current_scope, 0),
-            key="dev_search_scope",
-        )
-
-        if selected_scope == "All projects":
-            st.session_state.search_scope = "all_projects"
-            st.session_state.project_id = None
-            st.session_state.asset_id = None
-            st.info("Searching every indexed project and document.")
-
-        elif selected_scope == "Single project":
-            st.session_state.search_scope = "project"
-            default_project_id = st.session_state.project_id or 2
-            st.session_state.project_id = int(
-                st.number_input(
-                    "Project ID",
-                    min_value=1,
-                    value=int(default_project_id),
-                    step=1,
-                    key="dev_project_id",
-                )
-            )
-            st.session_state.asset_id = None
-
-        else:
-            st.session_state.search_scope = "document"
-            default_project_id = st.session_state.project_id or 2
-            default_asset_id = st.session_state.asset_id or 1
-            st.session_state.project_id = int(
-                st.number_input(
-                    "Project ID",
-                    min_value=1,
-                    value=int(default_project_id),
-                    step=1,
-                    key="dev_project_id",
-                )
-            )
-            st.session_state.asset_id = int(
-                st.number_input(
-                    "Asset ID",
-                    min_value=1,
-                    value=int(default_asset_id),
-                    step=1,
-                    key="dev_asset_id",
-                )
-            )
-
         providers = ["groq", "glm", "gemini", "manus"]
         current = st.session_state.generation_provider
         st.session_state.generation_provider = st.selectbox(
@@ -486,11 +425,7 @@ def render_sidebar(client: APIClient) -> None:
             render_developer_settings()
 
         else:
-            # User Mode searches all indexed projects and documents.
             st.session_state.developer_mode = False
-            st.session_state.search_scope = "all_projects"
-            st.session_state.project_id = None
-            st.session_state.asset_id = None
 
         if st.button(
             "+ New conversation",
@@ -608,7 +543,6 @@ def render_header() -> None:
 
 
 def main() -> None:
-    load_css()
     initialize_state()
     api_url = "http://127.0.0.1:8000"
     try:
@@ -622,6 +556,15 @@ def main() -> None:
     token = st.session_state.get("auth_token")
     client = APIClient(base_url=api_url, auth_token=token)
 
+    # Sync conversations if logged in
+    if token and not st.session_state.get("conversations_synced"):
+        try:
+            convs = client.list_conversations(limit=50)
+            st.session_state.conversations = {str(c["id"]): c for c in convs.get("items", [])}
+            st.session_state.conversations_synced = True
+        except Exception:
+            pass
+
     # Route to standalone login / register / otp pages
     current_page = st.session_state.get("current_page", "app")
     if current_page == "login":
@@ -634,10 +577,11 @@ def main() -> None:
         render_otp_page(client)
         return
 
+    # Load the chat theme only after standalone auth routing.
+    load_css()
     render_sidebar(client)
 
     render_header()
-    render_scope_selector()
     render_floating_assistant()
 
     if st.session_state.get("messages"):

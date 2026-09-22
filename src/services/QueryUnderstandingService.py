@@ -27,6 +27,8 @@ QueryIntent = Literal[
     "prompt_injection",
     "out_of_scope",
     "general_alcohol_information",
+    "support_service_lookup",
+    "social",
 ]
 
 
@@ -43,9 +45,16 @@ class QueryUnderstanding:
     direct_response: str | None
     safety_reason: str | None
     detected_style: str
+    corrected_question: str | None = None
+    detected_language: str | None = None
+    requires_retrieval: bool = True
+    location: dict[str, str | None] | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return asdict(self)
+        value = asdict(self)
+        value["corrected_question"] = self.corrected_question or self.normalized_question
+        value["location"] = self.location or {"country": None, "city": None}
+        return value
 
 
 class QueryUnderstandingService:

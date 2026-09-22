@@ -25,8 +25,6 @@ class ContextBuilder:
                 f"Document: {source['document_name'] or 'Unknown document'}",
                 f"Section: {source['section_title'] or 'Unknown section'}",
                 f"Page: {source['page_number'] if source['page_number'] is not None else 'Unknown'}",
-                f"Asset ID: {source['asset_id'] if source['asset_id'] is not None else 'Unknown'}",
-                f"Chunk ID: {source['chunk_id'] or 'Unknown'}",
                 "Content:",
                 source["content"],
             )
@@ -63,15 +61,10 @@ class ContextBuilder:
             if remaining <= 0:
                 break
 
+            # Never silently truncate an authoritative chunk. A partial table,
+            # confidence interval, or sentence can change the evidence meaning.
             if len(block) > remaining:
-                fixed_prefix = block[: max(0, block.rfind("Content:\n") + 9)]
-                content_budget = max(0, remaining - len(fixed_prefix))
-                if content_budget < 100:
-                    break
-                source["content"] = content[:content_budget].rstrip()
-                source["text"] = source["content"]
-                source["excerpt"] = source["content"]
-                block = self._source_block(source)
+                continue
 
             sources.append(source)
             blocks.append(block)

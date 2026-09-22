@@ -1,3 +1,5 @@
+import asyncio
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -46,6 +48,7 @@ class HybridRetrievalService:
         rrf_k: int = 60,
         query_rewriter: QueryRewriter | None = None,
         keyword_translator: CrossLanguageKeywordTranslator | None = None,
+        exclude_low_value_sections: bool = True,
     ) -> None:
         self._embedding_provider = embedding_provider
         self._vector_db = vector_db
@@ -54,6 +57,8 @@ class HybridRetrievalService:
         self._rrf_k = rrf_k
         self._query_rewriter = query_rewriter or QueryRewriter()
         self._keyword_translator = keyword_translator
+        self._exclude_low_value_sections = exclude_low_value_sections
+        self.last_diagnostics: dict[str, Any] = {}
 
     @staticmethod
     def _keyword_query_from_hints(
@@ -75,6 +80,41 @@ class HybridRetrievalService:
             return None
 
         return " OR ".join(unique)
+
+    _LOW_VALUE_SECTION_PATTERNS = (
+        "contents", "table of contents", "references", "bibliography",
+        "document information", "document metadata",
+    )
+
+    @staticmethod
+    def _normalize_section_title(title: str) -> str:
+        value = " ".join(str(title).casefold().split()).strip()
+        # 5. References, 3.2 References, 6 - Bibliography, etc.
+        value = re.sub(r"^\s*\d+(?:\.\d+)*\s*[.\-:)]*\s*", "", value)
+        return value.strip()
+
+    @classmethod
+    def _query_requests_low_value_content(cls, query: str) -> bool:
+        normalized = " ".join(str(query).casefold().split())
+        indicators = (
+            "reference", "references", "bibliography", "citation list",
+            "contents", "table of contents", "فهرس", "المراجع", "المصادر",
+        )
+        return any(item in normalized for item in indicators)
+
+    @classmethod
+    def _is_low_value_candidate(cls, candidate: _Candidate) -> bool:
+        title = cls._normalize_section_title(candidate.section_title)
+        return any(
+            title == pattern or title.startswith(pattern + " ")
+            for pattern in cls._LOW_VALUE_SECTION_PATTERNS
+        )
+
+    def _filter_low_value(self, candidates: list[_Candidate], query: str) -> tuple[list[_Candidate], int]:
+        if not self._exclude_low_value_sections or self._query_requests_low_value_content(query):
+            return candidates, 0
+        filtered = [item for item in candidates if not self._is_low_value_candidate(item)]
+        return filtered, len(candidates) - len(filtered)
 
     async def _semantic_search(
         self,
@@ -253,17 +293,15 @@ class HybridRetrievalService:
             )
         )
 
-        if (
-            use_cross_language_keyword
-            and self._keyword_translator is not None
-        ):
-            translated = (
-                await self._keyword_translator.translate_for_keyword_search(
-                    keyword_query
-                )
-            )
-            if translated and translated != keyword_query:
-                keyword_query = translated
+        translation_used = False
+        original_keyword_query = keyword_query
+        if use_cross_language_keyword and self._keyword_translator is not None:
+            translated = await self._keyword_translator.translate_for_keyword_search(keyword_query)
+            if translated and translated.casefold() != keyword_query.casefold():
+                translation_used = True
+                keyword_query = self._keyword_query_from_hints(
+                    [original_keyword_query, translated]
+                ) or translated
 
         effective_rewritten = RewrittenQuery(
             original_query=rewritten.original_query,
@@ -272,40 +310,44 @@ class HybridRetrievalService:
             expansions=tuple(keyword_hints or rewritten.expansions),
         )
 
+        raw_semantic: list[_Candidate] = []
+        raw_keyword: list[_Candidate] = []
         if search_type == SearchType.SEMANTIC:
-            candidates = await self._semantic_search(
-                effective_semantic_query,
-                project_id,
-                asset_id,
-            )
-            for item in candidates:
-                item.rrf_score = 1.0 / (
-                    self._rrf_k + int(item.semantic_rank or 0)
-                )
+            raw_semantic = await self._semantic_search(effective_semantic_query, project_id, asset_id)
         elif search_type == SearchType.KEYWORD:
-            candidates = await self._keyword_search(
-                session,
-                keyword_query,
-                project_id,
-                asset_id,
-            )
-            for item in candidates:
-                item.rrf_score = 1.0 / (
-                    self._rrf_k + int(item.keyword_rank or 0)
-                )
+            raw_keyword = await self._keyword_search(session, keyword_query, project_id, asset_id)
         else:
-            semantic = await self._semantic_search(
-                effective_semantic_query,
-                project_id,
-                asset_id,
+            raw_semantic, raw_keyword = await asyncio.gather(
+                self._semantic_search(effective_semantic_query, project_id, asset_id),
+                self._keyword_search(session, keyword_query, project_id, asset_id),
             )
-            keyword = await self._keyword_search(
-                session,
-                keyword_query,
-                project_id,
-                asset_id,
-            )
+
+        semantic, semantic_removed = self._filter_low_value(raw_semantic, query)
+        keyword, keyword_removed = self._filter_low_value(raw_keyword, query)
+        if search_type == SearchType.SEMANTIC:
+            candidates = semantic
+            for item in candidates:
+                item.rrf_score = 1.0 / (self._rrf_k + int(item.semantic_rank or 0))
+        elif search_type == SearchType.KEYWORD:
+            candidates = keyword
+            for item in candidates:
+                item.rrf_score = 1.0 / (self._rrf_k + int(item.keyword_rank or 0))
+        else:
             candidates = self._fuse(semantic, keyword)
+
+        self.last_diagnostics = {
+            "search_type": search_type.value,
+            "raw_semantic_candidate_count": len(raw_semantic),
+            "raw_keyword_candidate_count": len(raw_keyword),
+            "filtered_semantic_candidate_count": len(semantic),
+            "filtered_keyword_candidate_count": len(keyword),
+            "low_value_semantic_removed": semantic_removed,
+            "low_value_keyword_removed": keyword_removed,
+            "post_fusion_candidate_count": len(candidates),
+            "cross_language_keyword_used": translation_used,
+            "original_keyword_query": original_keyword_query,
+            "effective_keyword_query": keyword_query,
+        }
 
         output = [
             self._to_output(item, rank)

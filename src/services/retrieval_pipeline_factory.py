@@ -24,5 +24,5 @@ def create_retrieval_pipeline_service() -> RetrievalPipelineService:
         hybrid_service=hybrid_service,
         deduplicator=deduplicator,
         reranker=reranker,
-        fused_candidate_limit=20,
+        fused_candidate_limit=30,
     )

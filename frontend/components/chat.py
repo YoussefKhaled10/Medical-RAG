@@ -3,9 +3,21 @@ import re
 import time
 from typing import Any
 import streamlit as st
+from markdown_it import MarkdownIt
 
 ARABIC = re.compile(r"[\u0600-\u06FF]")
-CITATIONS = re.compile(r"\s*\[S\d+\]")
+CITATIONS = re.compile(r"(?<!\w)\s*\[S\d+\](?!\w)")
+MARKDOWN = MarkdownIt(
+    "commonmark",
+    {"html": False, "breaks": True, "linkify": False},
+)
+
+
+def _direction(text: str, language: str | None = None) -> str:
+    """Resolve direction without modifying answer content."""
+    if str(language or "").lower().startswith("ar"):
+        return "rtl"
+    return "rtl" if ARABIC.search(text) else "ltr"
 
 
 def _dev() -> bool:
@@ -23,6 +35,19 @@ def _html(text: str) -> str:
     if _dev():
         value = re.sub(r"(\[S\d+\])", r'<span class="inline-citation">\1</span>', value)
     return value
+
+
+def _markdown_html(text: str) -> str:
+    """Render model Markdown safely while preserving developer citations."""
+    clean = _answer(str(text or ""))
+    rendered = MARKDOWN.render(clean)
+    if _dev():
+        rendered = re.sub(
+            r"(\[S\d+\])",
+            r'<span class="inline-citation">\1</span>',
+            rendered,
+        )
+    return rendered
 
 
 def _metadata(message: dict[str, Any]) -> None:
@@ -100,14 +125,19 @@ def render_chat_interface(messages: list[dict[str, Any]]) -> None:
     )
     for message in messages:
         content = str(message.get("content", ""))
-        language = message.get("language") or ("ar" if ARABIC.search(content) else "en")
-        direction = "rtl" if language == "ar" else "ltr"
+        language = message.get("language")
+        direction = _direction(content, language)
         if message.get("role") == "user":
             with st.chat_message("user", avatar="👤"):
-                st.markdown(f'<div class="user-message-row"><div class="user-message" dir="{direction}">{_html(content)}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="user-message-row"><div class="user-message" dir="{direction}"><bdi>{_html(content)}</bdi></div></div>', unsafe_allow_html=True)
         else:
             with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(f'<div class="assistant-title">RecoveryPath AI</div><div class="assistant-message" dir="{direction}">{_html(content)}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="assistant-title">RecoveryPath AI</div>'
+                    f'<div class="assistant-message rp-markdown-message" '
+                    f'dir="{direction}">{_markdown_html(content)}</div>',
+                    unsafe_allow_html=True,
+                )
                 _metadata(message)
                 _details(message)
 
@@ -118,16 +148,17 @@ def render_streaming_assistant(
     text: str,
     *,
     language: str | None = None,
-    delay_seconds: float = 0.025,
+    delay_seconds: float = 0.018,
 ) -> None:
-    """Show a completed API answer progressively inside the chat UI."""
+    """Stream a safe preview, then commit fully rendered Markdown."""
     clean = str(text or "").strip()
     if not clean:
         return
 
-    resolved_language = language or ("ar" if ARABIC.search(clean) else "en")
-    direction = "rtl" if resolved_language == "ar" else "ltr"
+    direction = _direction(clean, language)
     words = clean.split()
+    group_size = 4 if direction == "rtl" else 3
+    groups = [words[i : i + group_size] for i in range(0, len(words), group_size)]
 
     with st.chat_message("assistant", avatar="🤖"):
         st.markdown(
@@ -137,17 +168,25 @@ def render_streaming_assistant(
         placeholder = st.empty()
         rendered: list[str] = []
 
-        for index, word in enumerate(words):
-            rendered.append(word)
-            cursor = " ▌" if index < len(words) - 1 else ""
-            value = _html(" ".join(rendered))
+        # During animation use escaped text so incomplete Markdown cannot break.
+        for index, group in enumerate(groups):
+            rendered.extend(group)
+            cursor = " ▌" if index < len(groups) - 1 else ""
+            preview = _html(" ".join(rendered))
             placeholder.markdown(
                 f'<div class="assistant-message rp-streaming-answer" '
-                f'dir="{direction}">{value}{cursor}</div>',
+                f'dir="{direction}"><bdi>{preview}</bdi>{cursor}</div>',
                 unsafe_allow_html=True,
             )
-            if delay_seconds > 0:
+            if delay_seconds > 0 and index < len(groups) - 1:
                 time.sleep(delay_seconds)
+
+        # Final frame parses headings, lists, emphasis, and numbered steps.
+        placeholder.markdown(
+            f'<div class="assistant-message rp-markdown-message" '
+            f'dir="{direction}">{_markdown_html(clean)}</div>',
+            unsafe_allow_html=True,
+        )
 
 def render_chat_bottom_anchor() -> None:
     st.markdown(

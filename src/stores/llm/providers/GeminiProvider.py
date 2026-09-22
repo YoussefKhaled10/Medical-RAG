@@ -14,7 +14,7 @@ class GeminiProvider(GenerationInterface):
     def __init__(
         self,
         api_key: str,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-3.6-flash",
     ) -> None:
         if not api_key.strip():
             raise ValueError("Gemini API key must not be empty")
@@ -69,6 +69,40 @@ class GeminiProvider(GenerationInterface):
         if not text:
             raise RuntimeError("Gemini returned an empty response")
 
+        return GenerationResult(
+            text=text,
+            provider="gemini",
+            model=self._model_name,
+            request_id=getattr(response, "response_id", None),
+        )
+
+    async def generate_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.0,
+        max_output_tokens: int = 500,
+    ) -> GenerationResult:
+        """Generate strict JSON for structured routing tasks."""
+        if self._closed:
+            raise RuntimeError("Gemini provider is already closed")
+        response = await self._client.models.generate_content(
+            model=self._model_name,
+            contents=user_prompt.strip(),
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt.strip(),
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
+            ),
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini returned an empty JSON response")
         return GenerationResult(
             text=text,
             provider="gemini",

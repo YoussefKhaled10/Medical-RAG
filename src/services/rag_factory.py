@@ -43,7 +43,7 @@ def _generation_credentials(
             or getattr(
                 settings,
                 "GEMINI_GENERATION_MODEL",
-                "gemini-2.5-flash",
+                "gemini-3.6-flash",
             ),
         )
     if provider_name == "manus":
@@ -113,6 +113,26 @@ def create_rag_service(
         provider=judge_provider_name,
         api_key=judge_api_key,
         model_name=judge_model,
+    )
+
+    intent_provider_name = getattr(
+        settings,
+        "INTENT_PROVIDER",
+        "gemini",
+    ).lower()
+    intent_model_override = getattr(
+        settings,
+        "INTENT_MODEL",
+        "gemini-3.6-flash",
+    )
+    intent_api_key, intent_model = _generation_credentials(
+        intent_provider_name,
+        model_override=intent_model_override,
+    )
+    intent_provider = GenerationFactory.create(
+        provider=intent_provider_name,
+        api_key=intent_api_key,
+        model_name=intent_model,
     )
 
     claim_extractor = ClaimExtractor()
@@ -201,11 +221,11 @@ def create_rag_service(
         claim_judge_provider=claim_judge_provider,
         evidence_builder=EvidenceBuilder(),
         query_understanding_service=IntentUnderstandingService(
-            claim_judge_provider,
+            intent_provider,
             max_output_tokens=getattr(
                 settings,
                 "INTENT_MODEL_MAX_OUTPUT_TOKENS",
-                450,
+                320,
             ),
         ),
         retrieval_retry_service=RetrievalRetryService(
@@ -223,5 +243,10 @@ def create_rag_service(
                 "SUPPORTED_ANSWER_REBUILDER_MAX_OUTPUT_TOKENS",
                 500,
             ),
+        ),
+        managed_providers=(
+            generation_provider,
+            claim_judge_provider,
+            intent_provider,
         ),
     )

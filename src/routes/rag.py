@@ -12,7 +12,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import get_db_session
+from src.models import AssetModel, get_db_session
 from src.services.rag_factory import create_rag_service
 from src.stores.llm.GenerationExceptions import GenerationProviderError
 
@@ -42,11 +42,15 @@ class RAGRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     conversation_history: list[ConversationMessage] = Field(
         default_factory=list,
-        max_length=6,
+        max_length=8,
     )
+    search_scope: Literal[
+        "system", "private", "combined", "selected_file"
+    ] = "system"
     project_id: int | None = Field(default=None, gt=0)
     asset_id: int | None = Field(default=None, gt=0)
     retrieval_limit: int = Field(default=5, ge=1, le=10)
+    retrieval_mode: Literal["semantic", "keyword", "hybrid"] = "hybrid"
     generation_provider: Literal[
         "gemini",
         "groq",
@@ -231,26 +235,39 @@ async def ask_rag(
     session: AsyncSession = Depends(get_db_session),
 ) -> RAGResponse:
     global_id = settings.GLOBAL_PROJECT_ID
-    if current_user is not None:
-        user_vault_id = current_user.private_project_id
-        if request.project_id is not None:
-            if request.project_id != global_id and request.project_id != user_vault_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: You can only search the Global Knowledge Base and your own Private Vault.",
-                )
-            effective_projects: list[int] | int = [request.project_id]
-        else:
-            effective_projects = [global_id]
-            if user_vault_id and user_vault_id not in effective_projects:
-                effective_projects.append(user_vault_id)
+    scope = request.search_scope
+    effective_asset_id: int | None = None
+
+    if scope == "system":
+        if request.asset_id is not None:
+            raise HTTPException(status_code=422, detail="asset_id is only valid with selected_file scope.")
+        effective_projects: list[int] = [global_id]
+
     else:
-        if request.project_id is not None and request.project_id != global_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Authentication required to search private project vaults.",
-            )
-        effective_projects = [global_id]
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Sign in to search private documents.")
+        private_id = current_user.private_project_id
+        if not private_id:
+            raise HTTPException(status_code=400, detail="No private project is assigned to this user.")
+
+        if scope == "private":
+            if request.asset_id is not None:
+                raise HTTPException(status_code=422, detail="asset_id is only valid with selected_file scope.")
+            effective_projects = [private_id]
+        elif scope == "combined":
+            if request.asset_id is not None:
+                raise HTTPException(status_code=422, detail="asset_id is only valid with selected_file scope.")
+            effective_projects = [global_id, private_id] if private_id != global_id else [global_id]
+        elif scope == "selected_file":
+            if request.asset_id is None:
+                raise HTTPException(status_code=422, detail="Select a file before searching.")
+            asset = await AssetModel.get_by_id(session, request.asset_id)
+            if asset is None or asset.project_id != private_id:
+                raise HTTPException(status_code=404, detail="Selected file was not found.")
+            effective_projects = [private_id]
+            effective_asset_id = asset.id
+        else:
+            raise HTTPException(status_code=422, detail="Unsupported search scope.")
 
     try:
         service = create_rag_service(request.generation_provider)
@@ -262,8 +279,9 @@ async def ask_rag(
             session=session,
             question=request.question,
             project_id=effective_projects,
-            asset_id=request.asset_id,
+            asset_id=effective_asset_id,
             retrieval_limit=request.retrieval_limit,
+            retrieval_mode=request.retrieval_mode,
             temperature=request.temperature,
             max_output_tokens=request.max_output_tokens,
             conversation_history=[
@@ -361,7 +379,26 @@ async def ask_rag(
                 for item in retrieval["results"]
             ],
             "semantic_query": retrieval.get("semantic_query"),
+            "corrected_question": retrieval.get("query_understanding", {}).get("corrected_question"),
+            "detected_language": retrieval.get("query_understanding", {}).get("detected_language"),
+            "detected_style": retrieval.get("query_understanding", {}).get("detected_style"),
+            "intent": retrieval.get("query_understanding", {}).get("intent"),
+            "requires_retrieval": retrieval.get("query_understanding", {}).get("requires_retrieval"),
+            "keyword_hints": retrieval.get("query_understanding", {}).get("keyword_hints", []),
+            "search_type": retrieval.get("search_type", request.retrieval_mode),
+            "semantic_candidate_count": retrieval.get("semantic_candidate_count", 0),
+            "keyword_candidate_count": retrieval.get("keyword_candidate_count", 0),
             "rerank_query": retrieval.get("rerank_query"),
+            "raw_semantic_candidate_count": retrieval.get("raw_semantic_candidate_count", 0),
+            "raw_keyword_candidate_count": retrieval.get("raw_keyword_candidate_count", 0),
+            "filtered_semantic_candidate_count": retrieval.get("filtered_semantic_candidate_count", 0),
+            "filtered_keyword_candidate_count": retrieval.get("filtered_keyword_candidate_count", 0),
+            "low_value_semantic_removed": retrieval.get("low_value_semantic_removed", 0),
+            "low_value_keyword_removed": retrieval.get("low_value_keyword_removed", 0),
+            "post_fusion_candidate_count": retrieval.get("post_fusion_candidate_count", 0),
+            "candidates_sent_to_reranker": retrieval.get("candidates_sent_to_reranker", 0),
+            "reranking_fallback": retrieval.get("reranking_fallback", False),
+            "reranking_error": retrieval.get("reranking_error"),
             "retrieval_retry": retrieval.get(
                 "retrieval_retry",
                 {

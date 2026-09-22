@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import AssetModel, ProjectModel, get_db_session
+from src.helpers.config import settings
 from src.services.ingestion_factory import create_ingestion_service
 
 
@@ -146,7 +147,7 @@ async def _save_file(
 _save_pdf = _save_file
 
 
-from src.dependencies.auth import get_optional_current_user
+from src.dependencies.auth import get_current_admin, get_current_user, get_optional_current_user
 from src.models.db_schemes.medical_rag import User
 
 
@@ -159,10 +160,10 @@ from src.models.db_schemes.medical_rag import User
 async def upload_and_index_document(
     project_id: int | None = Form(default=None),
     file: UploadFile = File(...),
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> IngestionResponse:
-    # 1. Determine effective project target and enforce isolation
+    # Uploads always target the authenticated user's private vault.
     if current_user is not None:
         target_project_id = current_user.private_project_id
         if project_id is not None and project_id != current_user.private_project_id:
@@ -295,7 +296,62 @@ async def upload_and_index_document(
             await service.close()
 
 
+
+
+@ingestion_router.post(
+    "/system-upload",
+    response_model=IngestionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and index a document into the system knowledge base (admin only)",
+)
+async def upload_and_index_system_document(
+    file: UploadFile = File(...),
+    current_admin: User = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db_session),
+) -> IngestionResponse:
+    # Index a document in the server-configured global project.
+    global_project_id = int(settings.GLOBAL_PROJECT_ID)
+    if global_project_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GLOBAL_PROJECT_ID is not configured correctly.",
+        )
+
+    # Reuse the existing validated ingestion path without duplicating logic.
+    original_private_project_id = current_admin.private_project_id
+    try:
+        current_admin.private_project_id = global_project_id
+        return await upload_and_index_document(
+            project_id=global_project_id,
+            file=file,
+            current_user=current_admin,
+            session=session,
+        )
+    finally:
+        current_admin.private_project_id = original_private_project_id
+
+
 upload_and_index_pdf = upload_and_index_document
+
+
+@ingestion_router.get("/my-assets", summary="List the authenticated user's private files")
+async def list_my_assets(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    if not current_user.private_project_id:
+        return []
+    assets = await AssetModel.list_by_project(session, current_user.private_project_id)
+    return [
+        {
+            "id": item.id,
+            "file_name": item.file_name,
+            "document_name": item.document_name,
+            "status": item.processing_status,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        }
+        for item in assets
+    ]
 
 
 @ingestion_router.get(
@@ -306,7 +362,7 @@ upload_and_index_pdf = upload_and_index_document
 )
 async def get_asset_chunks(
     asset_id: int,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> AssetChunksResponse:
     asset = await AssetModel.get_by_id(
@@ -319,8 +375,9 @@ async def get_asset_chunks(
             detail=f"Asset {asset_id} was not found.",
         )
 
-    # If user is authenticated, ensure they own the asset's project or it's global KB (project_id 1)
-    if current_user is not None and asset.project_id != 1 and asset.project_id != current_user.private_project_id:
+    # Users may view only the configured system KB or their own Private Vault.
+    global_project_id = int(settings.GLOBAL_PROJECT_ID)
+    if asset.project_id not in {global_project_id, current_user.private_project_id}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: You do not have permission to view this document.",
@@ -349,7 +406,7 @@ async def get_asset_chunks(
 )
 async def delete_asset(
     asset_id: int,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     asset = await AssetModel.get_by_id(
@@ -362,7 +419,7 @@ async def delete_asset(
             detail=f"Asset {asset_id} was not found.",
         )
 
-    if current_user is not None and asset.project_id != current_user.private_project_id:
+    if asset.project_id != current_user.private_project_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: You can only delete documents from your own Private Vault.",
